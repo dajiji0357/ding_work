@@ -1,0 +1,30 @@
+﻿<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>보류중 월별 게시판</title>
+  <link rel="stylesheet" href="completed.css">
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+</head>
+<body>
+  <div class="page">
+    <header class="head">
+      <h1>보류중 작업 게시판</h1>
+      <div class="head-actions">
+        <button id="adminToggleBtn" class="admin-btn" onclick="toggleAdmin()">Admin 로그인</button>
+        <label for="yearSelect">연도</label>
+        <select id="yearSelect"></select>
+      </div>
+    </header>
+
+    <section id="monthSummary" class="month-summary"></section>
+    <section id="monthBoard" class="month-board"></section>
+  </div>
+
+  <script src="hold.js"></script>
+</body>
+</html>
+

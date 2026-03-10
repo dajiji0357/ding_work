@@ -13,8 +13,7 @@
   <div class="container">
     <header class="main-header glass">
       <div class="brand-wrap">
-        <div class="logo-badge">FLOW OS</div>
-        <div id="adminBadge" class="badge-pill hidden">ADMIN</div>
+        <div class="logo-badge">Ding_work_manager</div>
       </div>
 
       <div class="header-right">
@@ -54,7 +53,7 @@
           <label for="taskDate">마감일</label>
           <input type="date" id="taskDate">
         </div>
-        <button class="btn btn-primary" onclick="addTask()">PUSH TASK</button>
+        <button class="btn btn-primary" onclick="addTask()">업무 등록</button>
       </div>
     </section>
 
@@ -81,8 +80,23 @@
           <div id="수정중-list" class="drop-zone"></div>
         </div>
         <div class="col col-done" id="작업완료" ondrop="drop(event)" ondragover="allowDrop(event)">
-          <h3>작업완 (최근 5개)</h3>
+          <h3>작업완료</h3>
           <div id="작업완료-list" class="drop-zone"></div>
+        </div>
+      </section>
+
+      <section class="panel glass shared-note-panel">
+        <div class="section-head">
+          <h2>전체 공용 메모</h2>
+          <div class="note-toolbar">
+            <button class="btn btn-outline small" onclick="enterSharedEdit()">편집</button>
+            <button class="btn btn-outline small" onclick="insertSharedLink()">링크 추가</button>
+          </div>
+        </div>
+        <div class="note-shell shared-note-shell">
+          <textarea id="archiveStaticMemo" class="note-editor note-editor-pane hidden" onblur="exitSharedEdit()" onpaste="handleSharedPaste(event)" placeholder="링크: https://example.com 또는 [제목](https://...)
+이미지: Ctrl+V로 붙여넣기"></textarea>
+          <div id="sharedView" class="note-view-pane" ondblclick="enterSharedEdit()"></div>
         </div>
       </section>
 
@@ -90,32 +104,22 @@
         <div class="section-head">
           <h2>작업완료 / 보류중</h2>
         </div>
-        <div class="archive-filter-row">
-          <div class="field compact">
-            <label for="archiveTypeSelect">구분</label>
-            <select id="archiveTypeSelect" onchange="onArchiveTypeChange()">
-              <option value="보류중">보류중</option>
-              <option value="작업완료">작업완료</option>
-            </select>
-          </div>
-          <div class="field compact">
-            <label for="archiveMonthSelect">년-월</label>
-            <select id="archiveMonthSelect" onchange="onArchiveMonthChange()"></select>
-          </div>
+        <div class="archive-split-board">
+          <article class="archive-split-col">
+            <div class="archive-col-head">
+              <h3>작업완료</h3>
+              <a class="btn btn-route done-route" href="completed.html" target="_blank" rel="noopener noreferrer">작업완료</a>
+            </div>
+            <div id="doneArchiveTaskList" class="archive-grid"></div>
+          </article>
+          <article class="archive-split-col">
+            <div class="archive-col-head">
+              <h3>보류중</h3>
+              <a class="btn btn-route hold-route-gray" href="hold.html" target="_blank" rel="noopener noreferrer">보류중 작업</a>
+            </div>
+            <div id="holdArchiveTaskList" class="archive-grid"></div>
+          </article>
         </div>
-        <div id="archiveTaskList" class="archive-grid"></div>
-      </section>
-
-      <section class="panel glass shared-note-panel">
-        <div class="section-head">
-          <h2>전체 공용 메모</h2>
-          <div class="note-toolbar">
-            <button class="btn btn-outline small" onclick="insertSharedText('[링크 제목](https://example.com)')">링크</button>
-            <button class="btn btn-outline small" onclick="insertSharedText('- [ ] 토글 항목')">토글</button>
-          </div>
-        </div>
-        <textarea id="archiveStaticMemo" class="note-editor" placeholder="링크: [제목](https://...)\n토글: - [ ] 내용"></textarea>
-        <div id="sharedPreview" class="note-preview"></div>
       </section>
     </main>
   </div>

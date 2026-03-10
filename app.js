@@ -12,8 +12,9 @@ const db = firebase.firestore();
 const auth = firebase.auth();
 const AUTH_STORAGE_KEY = 'flowos_auth_v1';
 
-const ACTIVE_STATUSES = ["진행중", "컨펌중", "수정중", "작업완료"];
-const ARCHIVE_TYPES = ["보류중", "작업완료"];
+const BOARD_STATUSES = ["진행중", "컨펌중", "수정중", "작업완료"];
+const DONE_STATUS = "작업완료";
+const ACTIVE_STATUSES = [...BOARD_STATUSES];
 const LEGACY_STATUS_MAP = { "리뉴얼": "작업완료" };
 
 const localState = {
@@ -26,8 +27,8 @@ const localState = {
   firebaseConnected: false,
   authReady: false,
   archiveType: "보류중",
-  archiveMonth: "",
-  editingTaskId: null
+  editingTaskId: null,
+  sharedMemoSaveTimer: null
 };
 
 hydrateAuthFromStorage();
@@ -80,9 +81,11 @@ function initRealtime() {
     setFirebaseConnectedFromSnapshot(doc);
     const memoEl = document.getElementById('archiveStaticMemo');
     const content = doc.exists ? (doc.data().content || '') : '';
-    if (document.activeElement !== memoEl) {
+    if (memoEl && document.activeElement !== memoEl) {
       memoEl.value = content;
-      renderNotePreview('sharedPreview', content);
+    }
+    if (document.activeElement !== memoEl) {
+      renderSharedView(content);
     }
   }, handleRealtimeError);
 }
@@ -178,7 +181,7 @@ function renderBoard() {
     taskGroups[status].push(task);
   });
 
-  ACTIVE_STATUSES.forEach((status) => {
+  BOARD_STATUSES.forEach((status) => {
     const zone = document.getElementById(`${status}-list`);
     if (!zone) return;
 
@@ -186,14 +189,14 @@ function renderBoard() {
       .slice()
       .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 
-    const visibleTasks = status === '작업완료' ? sorted.slice(0, 5) : sorted;
-    visibleTasks.forEach((task) => zone.appendChild(createTaskCard(task)));
+    sorted.forEach((task) => zone.appendChild(createTaskCard(task)));
   });
 }
 
 function createTaskCard(task) {
   const card = document.createElement('div');
-  card.className = 'card';
+  const normalizedStatus = normalizeStatus(task.status);
+  card.className = `card ${normalizedStatus === DONE_STATUS ? 'done-card' : ''}`.trim();
   card.id = task.id;
   card.draggable = true;
   card.ondragstart = (e) => e.dataTransfer.setData('text', task.id);
@@ -214,81 +217,36 @@ function createTaskCard(task) {
   return card;
 }
 
-function getArchiveGroups(type) {
-  const groups = {};
-  localState.tasks
-    .filter((task) => normalizeStatus(task.status) === type)
-    .forEach((task) => {
-      const month = toYearMonth(task.date);
-      if (!groups[month]) groups[month] = [];
-      groups[month].push(task);
-    });
-  return groups;
-}
-
-function toYearMonth(dateStr) {
-  if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return '날짜미지정';
-  return dateStr.slice(0, 7);
-}
-
 function renderArchive() {
-  const typeSelect = document.getElementById('archiveTypeSelect');
-  const monthSelect = document.getElementById('archiveMonthSelect');
-  const list = document.getElementById('archiveTaskList');
+  const doneList = document.getElementById('doneArchiveTaskList');
+  const holdList = document.getElementById('holdArchiveTaskList');
+  if (!doneList || !holdList) return;
 
-  if (!ARCHIVE_TYPES.includes(localState.archiveType)) {
-    localState.archiveType = '보류중';
-  }
-  typeSelect.value = localState.archiveType;
+  const doneTasks = localState.tasks.filter((task) => normalizeStatus(task.status) === '작업완료');
+  const holdTasks = localState.tasks.filter((task) => normalizeStatus(task.status) === '보류중');
 
-  const tasksByType = localState.tasks.filter((task) => normalizeStatus(task.status) === localState.archiveType);
-  const isDoneType = localState.archiveType === '작업완료';
+  renderArchiveColumn(doneList, doneTasks, '작업완료 작업이 없습니다.');
+  renderArchiveColumn(holdList, holdTasks, '보류중 작업이 없습니다.');
+}
 
-  list.innerHTML = '';
-  if (!tasksByType.length) {
-    monthSelect.innerHTML = '<option value="">데이터 없음</option>';
-    monthSelect.disabled = true;
-    localState.archiveMonth = '';
-    list.innerHTML = '<div class="card">표시할 작업이 없습니다.</div>';
+function renderArchiveColumn(listEl, tasks, emptyMessage) {
+  listEl.innerHTML = '';
+  if (!tasks.length) {
+    listEl.innerHTML = `<div class="card">${emptyMessage}</div>`;
     return;
   }
 
-  if (!isDoneType || tasksByType.length < 10) {
-    monthSelect.innerHTML = '<option value="">전체</option>';
-    monthSelect.value = '';
-    monthSelect.disabled = true;
-    localState.archiveMonth = '';
+  const sortedTasks = tasks
+    .slice()
+    .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 
-    tasksByType
-      .slice()
-      .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
-      .forEach((task) => list.appendChild(createArchiveCard(task)));
-    return;
+  sortedTasks
+    .slice(0, 5)
+    .forEach((task) => listEl.appendChild(createArchiveCard(task)));
+
+  if (sortedTasks.length > 5) {
+    listEl.appendChild(createArchiveMoreCard(sortedTasks.length - 5));
   }
-
-  monthSelect.disabled = false;
-  const groups = getArchiveGroups(localState.archiveType);
-  const months = Object.keys(groups).sort().reverse();
-
-  if (!months.includes(localState.archiveMonth)) {
-    localState.archiveMonth = months[0];
-  }
-
-  monthSelect.innerHTML = months.map((m) => `<option value="${m}">${m}</option>`).join('');
-  monthSelect.value = localState.archiveMonth;
-  groups[localState.archiveMonth].forEach((task) => list.appendChild(createArchiveCard(task)));
-}
-
-function onArchiveTypeChange() {
-  localState.archiveType = document.getElementById('archiveTypeSelect').value;
-  localState.archiveMonth = '';
-  renderArchive();
-}
-
-function onArchiveMonthChange() {
-  if (document.getElementById('archiveMonthSelect').disabled) return;
-  localState.archiveMonth = document.getElementById('archiveMonthSelect').value;
-  renderArchive();
 }
 
 function createArchiveCard(task) {
@@ -304,6 +262,13 @@ function createArchiveCard(task) {
     </div>
   `;
   return card;
+}
+
+function createArchiveMoreCard(moreCount) {
+  const more = document.createElement('div');
+  more.className = 'archive-more';
+  more.innerText = `... 외 ${moreCount}건`;
+  return more;
 }
 
 function addTask() {
@@ -545,10 +510,10 @@ function updateAdminUI() {
   if (adminLogoutBtn) adminLogoutBtn.classList.toggle('hidden', !localState.isAdmin);
 
   if (localState.isAdmin) {
-    badge.classList.remove('hidden');
+    if (badge) badge.classList.remove('hidden');
     adminBtn.innerText = 'Admin Page';
   } else {
-    badge.classList.add('hidden');
+    if (badge) badge.classList.add('hidden');
     adminBtn.innerText = 'Admin';
   }
 }
@@ -638,20 +603,21 @@ function addNewMemo() {
 function renderMemos() {
   const grid = document.getElementById('memoGrid');
   grid.innerHTML = localState.memos.map((memo) => {
-    const linksAndToggles = renderNoteElements(memo.content || '');
     return `
       <article class="memo-card ${memo.isCollapsed ? 'collapsed' : ''}">
         <div class="memo-header">
           <input class="memo-title" value="${escapeAttr(memo.title || '')}" onblur="updateMemo('${memo.id}', 'title', this.value)">
           <div class="memo-tools">
-            <button class="btn btn-outline small" onclick="insertMemoText('${memo.id}', '[링크 제목](https://example.com)')">링크</button>
-            <button class="btn btn-outline small" onclick="insertMemoText('${memo.id}', '- [ ] 토글 항목')">토글</button>
+            <button class="btn btn-outline small" onclick="enterMemoEdit('${memo.id}')">편집</button>
+            <button class="btn btn-outline small" onclick="insertMemoLink('${memo.id}')">링크</button>
             <button class="btn btn-outline small" onclick="toggleMemo('${memo.id}', ${memo.isCollapsed ? 'false' : 'true'})">${memo.isCollapsed ? '펼치기' : '접기'}</button>
             <button class="btn btn-outline small" onclick="deleteMemo('${memo.id}')">삭제</button>
           </div>
         </div>
-        <textarea id="memo-body-${memo.id}" class="memo-body" onblur="updateMemo('${memo.id}', 'content', this.value)">${escapeHtml(memo.content || '')}</textarea>
-        <div class="memo-preview">${linksAndToggles}</div>
+        <div class="note-shell">
+          <textarea id="memo-body-${memo.id}" class="memo-body note-editor-pane hidden" onblur="exitMemoEdit('${memo.id}')" onpaste="handleMemoPaste(event, '${memo.id}')">${escapeHtml(memo.content || '')}</textarea>
+          <div id="memo-view-${memo.id}" class="note-view-pane" ondblclick="enterMemoEdit('${memo.id}')">${renderNoteElements(memo.content || '')}</div>
+        </div>
       </article>
     `;
   }).join('');
@@ -660,22 +626,9 @@ function renderMemos() {
 function renderNoteElements(content) {
   const safeContent = content || '';
   const lines = safeContent.split('\n');
-
-  const renderedLines = lines.map((line) => {
-    const toggleMatch = line.match(/^\s*-\s*\[( |x|X)\]\s*(.*)$/);
-    if (toggleMatch) {
-      const checked = toggleMatch[1].toLowerCase() === 'x';
-      return `<div class="toggle-line"><input type="checkbox" ${checked ? 'checked' : ''} disabled><span>${escapeHtml(toggleMatch[2])}</span></div>`;
-    }
-
-    const linkified = line.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (full, text, url) => {
-      return `<a class="note-link" href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(text)}</a>`;
-    });
-
-    return `<div>${linkified || '&nbsp;'}</div>`;
-  });
-
-  return renderedLines.join('');
+  return lines
+    .map((line) => `<div class="note-line">${renderLineWithLinks(line) || '<br>'}</div>`)
+    .join('');
 }
 
 function renderNotePreview(targetId, content) {
@@ -687,6 +640,27 @@ function updateMemo(id, field, value) {
   const memo = localState.memos.find((m) => m.id === id);
   if (memo && memo[field] === value) return;
   db.collection('memos').doc(id).update({ [field]: value });
+}
+
+function enterMemoEdit(id) {
+  const editor = document.getElementById(`memo-body-${id}`);
+  const view = document.getElementById(`memo-view-${id}`);
+  if (!editor || !view) return;
+  editor.classList.remove('hidden');
+  view.classList.add('hidden');
+  editor.focus();
+  editor.selectionStart = editor.value.length;
+  editor.selectionEnd = editor.value.length;
+}
+
+function exitMemoEdit(id) {
+  const editor = document.getElementById(`memo-body-${id}`);
+  const view = document.getElementById(`memo-view-${id}`);
+  if (!editor || !view) return;
+  updateMemo(id, 'content', editor.value);
+  view.innerHTML = renderNoteElements(editor.value);
+  view.classList.remove('hidden');
+  editor.classList.add('hidden');
 }
 
 function deleteMemo(id) {
@@ -712,23 +686,161 @@ function insertTextAtCursor(textarea, text) {
   textarea.value = prev.slice(0, start) + insert + prev.slice(end);
 }
 
+function wrapSelectionWithLink(textarea) {
+  if (!textarea) return;
+  const start = textarea.selectionStart ?? textarea.value.length;
+  const end = textarea.selectionEnd ?? textarea.value.length;
+  const prev = textarea.value;
+  const selected = prev.slice(start, end).trim();
+  const linkTitle = selected || '링크 제목';
+  const replacement = `[${linkTitle}](https://)`;
+  textarea.value = prev.slice(0, start) + replacement + prev.slice(end);
+
+  const cursorPos = start + replacement.length;
+  textarea.selectionStart = cursorPos;
+  textarea.selectionEnd = cursorPos;
+}
+
 function insertMemoText(memoId, text) {
+  enterMemoEdit(memoId);
   const textarea = document.getElementById(`memo-body-${memoId}`);
   if (!textarea) return;
   insertTextAtCursor(textarea, text);
+  textarea.focus();
   updateMemo(memoId, 'content', textarea.value);
 }
 
+function insertMemoLink(memoId) {
+  enterMemoEdit(memoId);
+  const textarea = document.getElementById(`memo-body-${memoId}`);
+  if (!textarea) return;
+  wrapSelectionWithLink(textarea);
+  updateMemo(memoId, 'content', textarea.value);
+  textarea.focus();
+}
+
 function insertSharedText(text) {
+  enterSharedEdit();
   const textarea = document.getElementById('archiveStaticMemo');
+  if (!textarea) return;
   insertTextAtCursor(textarea, text);
-  saveSharedMemo();
+  textarea.focus();
+  scheduleSharedMemoSave();
+}
+
+function insertSharedLink() {
+  enterSharedEdit();
+  const textarea = document.getElementById('archiveStaticMemo');
+  if (!textarea) return;
+  wrapSelectionWithLink(textarea);
+  scheduleSharedMemoSave();
+  textarea.focus();
+}
+
+function handleMemoPaste(event, memoId) {
+  handleImagePaste(event, (markdownImage) => {
+    const textarea = document.getElementById(`memo-body-${memoId}`);
+    if (!textarea) return;
+    insertTextAtCursor(textarea, markdownImage);
+    updateMemo(memoId, 'content', textarea.value);
+  });
+}
+
+function handleSharedPaste(event) {
+  handleImagePaste(event, (markdownImage) => {
+    const textarea = document.getElementById('archiveStaticMemo');
+    if (!textarea) return;
+    insertTextAtCursor(textarea, markdownImage);
+    scheduleSharedMemoSave();
+  });
+}
+
+function handleImagePaste(event, onImageReady) {
+  const clipboardItems = event.clipboardData && event.clipboardData.items ? event.clipboardData.items : [];
+  const imageItem = Array.from(clipboardItems).find((item) => item.type && item.type.startsWith('image/'));
+  if (!imageItem) return;
+
+  event.preventDefault();
+  const file = imageItem.getAsFile();
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    const dataUrl = typeof reader.result === 'string' ? reader.result : '';
+    if (!dataUrl) return;
+    onImageReady(`![붙여넣기 이미지](${dataUrl})`);
+  };
+  reader.readAsDataURL(file);
 }
 
 function saveSharedMemo() {
-  const content = document.getElementById('archiveStaticMemo').value;
-  renderNotePreview('sharedPreview', content);
-  db.collection('config').doc('sharedMemo').set({ content });
+  const editor = document.getElementById('archiveStaticMemo');
+  if (!editor) return;
+  if (localState.sharedMemoSaveTimer) {
+    clearTimeout(localState.sharedMemoSaveTimer);
+    localState.sharedMemoSaveTimer = null;
+  }
+  const content = editor.value;
+  db.collection('config').doc('sharedMemo').set({ content }, { merge: true });
+  renderSharedView(content);
+}
+
+function scheduleSharedMemoSave() {
+  const editor = document.getElementById('archiveStaticMemo');
+  if (!editor) return;
+  if (localState.sharedMemoSaveTimer) clearTimeout(localState.sharedMemoSaveTimer);
+  localState.sharedMemoSaveTimer = setTimeout(() => {
+    saveSharedMemo();
+  }, 300);
+}
+
+function enterSharedEdit() {
+  const editor = document.getElementById('archiveStaticMemo');
+  const view = document.getElementById('sharedView');
+  if (!editor || !view) return;
+  editor.classList.remove('hidden');
+  view.classList.add('hidden');
+  editor.focus();
+}
+
+function exitSharedEdit() {
+  const editor = document.getElementById('archiveStaticMemo');
+  const view = document.getElementById('sharedView');
+  if (!editor || !view) return;
+  saveSharedMemo();
+  view.classList.remove('hidden');
+  editor.classList.add('hidden');
+}
+
+function renderSharedView(content) {
+  const view = document.getElementById('sharedView');
+  if (!view) return;
+  view.innerHTML = renderNoteElements(content || '');
+}
+
+function renderLineWithLinks(line) {
+  const raw = String(line || '');
+  const markdownImages = [];
+  const withImageTokens = raw.replace(/!\[([^\]]*)\]\((data:image\/[^)]+|https?:\/\/[^\s)]+)\)/g, (full, alt, src) => {
+    const token = `__NOTE_IMAGE_${markdownImages.length}__`;
+    markdownImages.push(`<img class="note-image" src="${escapeAttr(src)}" alt="${escapeAttr(alt || 'image')}">`);
+    return token;
+  });
+
+  const markdownLinks = [];
+  const withLinkTokens = withImageTokens.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (full, text, url) => {
+    const token = `__NOTE_LINK_${markdownLinks.length}__`;
+    markdownLinks.push(`<a class="note-link" href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(text)}</a>`);
+    return token;
+  });
+
+  const escaped = escapeHtml(withLinkTokens);
+  const plainLinked = escaped.replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, (full, prefix, url) => {
+    return `${prefix}<a class="note-link" href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>`;
+  });
+
+  const withLinks = markdownLinks.reduce((html, link, index) => html.replace(`__NOTE_LINK_${index}__`, link), plainLinked);
+  return markdownImages.reduce((html, image, index) => html.replace(`__NOTE_IMAGE_${index}__`, image), withLinks);
 }
 
 function normalizeStatus(status) {
@@ -745,7 +857,10 @@ function getStatusClass(status) {
   return 'status-default';
 }
 
-document.getElementById('archiveStaticMemo').addEventListener('input', saveSharedMemo);
+const sharedMemoEl = document.getElementById('archiveStaticMemo');
+if (sharedMemoEl) {
+  sharedMemoEl.addEventListener('input', scheduleSharedMemoSave);
+}
 
 function isAdminName(name) {
   const normalized = String(name || '').trim().toLowerCase();
@@ -811,3 +926,6 @@ window.addEventListener('keydown', (event) => {
   if (event.key !== 'Escape') return;
   ['workerListModal', 'registerModal', 'loginModal', 'adminModal', 'taskEditModal'].forEach(closeModal);
 });
+
+window.handleMemoPaste = handleMemoPaste;
+window.handleSharedPaste = handleSharedPaste;
