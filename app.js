@@ -11,6 +11,12 @@ firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 const auth = firebase.auth();
 const AUTH_STORAGE_KEY = 'flowos_auth_v1';
+const COLLECTIONS = {
+  users: 'workflow_users',
+  tasks: 'workflow_tasks',
+  memos: 'workflow_memos',
+  config: 'workflow_config'
+};
 
 const BOARD_STATUSES = ["진행중", "컨펌중", "수정중", "작업완료"];
 const DONE_STATUS = "작업완료";
@@ -28,7 +34,8 @@ const localState = {
   authReady: false,
   archiveType: "보류중",
   editingTaskId: null,
-  sharedMemoSaveTimer: null
+  sharedMemoSaveTimer: null,
+  migrationTried: false
 };
 
 hydrateAuthFromStorage();
@@ -55,13 +62,15 @@ auth.signInAnonymously()
   });
 
 function initRealtime() {
-  db.collection('users').orderBy('name').onSnapshot({ includeMetadataChanges: true }, (snap) => {
+  migrateLegacyWorkflowCollections();
+
+  db.collection(COLLECTIONS.users).orderBy('name').onSnapshot({ includeMetadataChanges: true }, (snap) => {
     setFirebaseConnectedFromSnapshot(snap);
     localState.users = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
     render();
   }, handleRealtimeError);
 
-  db.collection('tasks').orderBy('date').onSnapshot({ includeMetadataChanges: true }, (snap) => {
+  db.collection(COLLECTIONS.tasks).orderBy('date').onSnapshot({ includeMetadataChanges: true }, (snap) => {
     setFirebaseConnectedFromSnapshot(snap);
     localState.tasks = snap.docs.map((doc) => {
       const task = { id: doc.id, ...doc.data() };
@@ -71,13 +80,13 @@ function initRealtime() {
     render();
   }, handleRealtimeError);
 
-  db.collection('memos').orderBy('createdAt', 'asc').onSnapshot({ includeMetadataChanges: true }, (snap) => {
+  db.collection(COLLECTIONS.memos).orderBy('createdAt', 'asc').onSnapshot({ includeMetadataChanges: true }, (snap) => {
     setFirebaseConnectedFromSnapshot(snap);
     localState.memos = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
     renderMemos();
   }, handleRealtimeError);
 
-  db.collection('config').doc('sharedMemo').onSnapshot({ includeMetadataChanges: true }, (doc) => {
+  db.collection(COLLECTIONS.config).doc('sharedMemo').onSnapshot({ includeMetadataChanges: true }, (doc) => {
     setFirebaseConnectedFromSnapshot(doc);
     const memoEl = document.getElementById('archiveStaticMemo');
     const content = doc.exists ? (doc.data().content || '') : '';
@@ -88,6 +97,48 @@ function initRealtime() {
       renderSharedView(content);
     }
   }, handleRealtimeError);
+}
+
+function migrateLegacyWorkflowCollections() {
+  if (localState.migrationTried) return;
+  localState.migrationTried = true;
+
+  const jobs = [
+    migrateCollectionIfTargetEmpty('users', COLLECTIONS.users),
+    migrateCollectionIfTargetEmpty('tasks', COLLECTIONS.tasks),
+    migrateCollectionIfTargetEmpty('memos', COLLECTIONS.memos),
+    migrateSharedMemoConfigIfTargetMissing()
+  ];
+
+  Promise.all(jobs).catch((err) => {
+    console.error(err);
+  });
+}
+
+function migrateCollectionIfTargetEmpty(sourceCollection, targetCollection) {
+  return db.collection(targetCollection).limit(1).get().then((targetSnap) => {
+    if (!targetSnap.empty) return;
+    return db.collection(sourceCollection).get().then((sourceSnap) => {
+      if (sourceSnap.empty) return;
+      const batch = db.batch();
+      sourceSnap.forEach((doc) => {
+        batch.set(db.collection(targetCollection).doc(doc.id), doc.data(), { merge: true });
+      });
+      return batch.commit();
+    });
+  });
+}
+
+function migrateSharedMemoConfigIfTargetMissing() {
+  const targetRef = db.collection(COLLECTIONS.config).doc('sharedMemo');
+  const sourceRef = db.collection('config').doc('sharedMemo');
+  return targetRef.get().then((targetDoc) => {
+    if (targetDoc.exists) return;
+    return sourceRef.get().then((sourceDoc) => {
+      if (!sourceDoc.exists) return;
+      return targetRef.set(sourceDoc.data() || {}, { merge: true });
+    });
+  });
 }
 
 function setFirebaseConnectedFromSnapshot(snap) {
@@ -283,7 +334,7 @@ function addTask() {
     return;
   }
 
-  db.collection('tasks').add({
+  db.collection(COLLECTIONS.tasks).add({
     name,
     userId,
     userName: user.name,
@@ -308,7 +359,7 @@ function drop(e) {
     target = target.parentElement;
   }
   if (!id || !target) return;
-  db.collection('tasks').doc(id).update({
+  db.collection(COLLECTIONS.tasks).doc(id).update({
     status: target.id,
     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
   });
@@ -394,9 +445,9 @@ function saveUser(userId) {
     alert('이름/비밀번호를 입력하세요.');
     return;
   }
-  db.collection('users').doc(userId).update({ name, pw });
+  db.collection(COLLECTIONS.users).doc(userId).update({ name, pw });
 
-  db.collection('tasks').where('userId', '==', userId).get().then((snap) => {
+  db.collection(COLLECTIONS.tasks).where('userId', '==', userId).get().then((snap) => {
     const batch = db.batch();
     snap.docs.forEach((doc) => batch.update(doc.ref, { userName: name }));
     return batch.commit();
@@ -406,7 +457,7 @@ function saveUser(userId) {
 function deleteUser(userId) {
   if (!localState.isAdmin) return;
   if (!confirm('작업자를 삭제하시겠습니까?')) return;
-  db.collection('users').doc(userId).delete();
+  db.collection(COLLECTIONS.users).doc(userId).delete();
 }
 
 function saveTask(taskId) {
@@ -422,7 +473,7 @@ function saveTask(taskId) {
     return;
   }
 
-  db.collection('tasks').doc(taskId).update({
+  db.collection(COLLECTIONS.tasks).doc(taskId).update({
     name,
     userId,
     userName: user.name,
@@ -435,7 +486,7 @@ function saveTask(taskId) {
 function deleteTask(taskId) {
   if (!localState.isAdmin) return;
   if (!confirm('작업을 삭제하시겠습니까?')) return;
-  db.collection('tasks').doc(taskId).delete();
+  db.collection(COLLECTIONS.tasks).doc(taskId).delete();
 }
 
 function openTaskEditModal(taskId) {
@@ -466,7 +517,7 @@ function saveTaskFromBoard() {
     return;
   }
 
-  db.collection('tasks').doc(localState.editingTaskId).update({
+  db.collection(COLLECTIONS.tasks).doc(localState.editingTaskId).update({
     name,
     userId,
     userName: user.name,
@@ -545,7 +596,7 @@ function registerUser() {
     return;
   }
 
-  db.collection('users').add({
+  db.collection(COLLECTIONS.users).add({
     name,
     pw,
     createdAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -592,7 +643,7 @@ function logoutAdmin() {
 }
 
 function addNewMemo() {
-  db.collection('memos').add({
+  db.collection(COLLECTIONS.memos).add({
     title: '새 페이지',
     content: '',
     isCollapsed: false,
@@ -639,7 +690,7 @@ function renderNotePreview(targetId, content) {
 function updateMemo(id, field, value) {
   const memo = localState.memos.find((m) => m.id === id);
   if (memo && memo[field] === value) return;
-  db.collection('memos').doc(id).update({ [field]: value });
+  db.collection(COLLECTIONS.memos).doc(id).update({ [field]: value });
 }
 
 function enterMemoEdit(id) {
@@ -665,11 +716,11 @@ function exitMemoEdit(id) {
 
 function deleteMemo(id) {
   if (!confirm('메모를 삭제하시겠습니까?')) return;
-  db.collection('memos').doc(id).delete();
+  db.collection(COLLECTIONS.memos).doc(id).delete();
 }
 
 function toggleMemo(id, collapsed) {
-  db.collection('memos').doc(id).update({ isCollapsed: collapsed });
+  db.collection(COLLECTIONS.memos).doc(id).update({ isCollapsed: collapsed });
 }
 
 function resolveUserName(task) {
@@ -781,7 +832,7 @@ function saveSharedMemo() {
     localState.sharedMemoSaveTimer = null;
   }
   const content = editor.value;
-  db.collection('config').doc('sharedMemo').set({ content }, { merge: true });
+  db.collection(COLLECTIONS.config).doc('sharedMemo').set({ content }, { merge: true });
   renderSharedView(content);
 }
 
@@ -929,3 +980,4 @@ window.addEventListener('keydown', (event) => {
 
 window.handleMemoPaste = handleMemoPaste;
 window.handleSharedPaste = handleSharedPaste;
+
