@@ -23,8 +23,6 @@
         <button class="btn btn-outline" onclick="openModal('registerModal')">회원가입</button>
         <button id="loginBtn" class="btn btn-outline" onclick="openModal('loginModal')">로그인</button>
         <button id="userLogoutBtn" class="btn btn-outline hidden" onclick="logoutUser()">로그아웃</button>
-        <button id="adminBtn" class="btn btn-action" onclick="handleAdminAction()">Admin</button>
-        <button id="adminLogoutBtn" class="btn btn-outline hidden" onclick="logoutAdmin()">Admin 로그아웃</button>
       </div>
     </header>
     <div id="networkBanner" class="network-banner hidden"></div>
@@ -60,7 +58,7 @@
     <section class="memo-workspace">
       <div class="section-head">
         <h2>공용 메모 보드</h2>
-        <button class="btn btn-primary" onclick="addNewMemo()">새 메모</button>
+        <button class="btn btn-primary" onclick="addNewMemo()">새 메모 제목</button>
       </div>
       <div id="memoGrid" class="memo-grid"></div>
     </section>
@@ -88,15 +86,10 @@
       <section class="panel glass shared-note-panel">
         <div class="section-head">
           <h2>전체 공용 메모</h2>
-          <div class="note-toolbar">
-            <button class="btn btn-outline small" onclick="enterSharedEdit()">편집</button>
-            <button class="btn btn-outline small" onclick="insertSharedLink()">링크 추가</button>
-          </div>
         </div>
         <div class="note-shell shared-note-shell">
-          <textarea id="archiveStaticMemo" class="note-editor note-editor-pane hidden" onblur="exitSharedEdit()" onpaste="handleSharedPaste(event)" placeholder="링크: https://example.com 또는 [제목](https://...)
-이미지: Ctrl+V로 붙여넣기"></textarea>
-          <div id="sharedView" class="note-view-pane" ondblclick="enterSharedEdit()"></div>
+          <textarea id="archiveStaticMemo" class="note-editor note-editor-pane" onpaste="handleSharedPaste(event)" placeholder="링크: https://example.com 또는 [제목](https://...)"></textarea>
+          <div id="sharedView" class="note-view-pane note-live-preview"></div>
         </div>
       </section>
 
@@ -108,20 +101,24 @@
           <article class="archive-split-col">
             <div class="archive-col-head">
               <h3>작업완료</h3>
-              <a class="btn btn-route done-route" href="completed.html" target="_blank" rel="noopener noreferrer">작업완료</a>
+              <a class="btn btn-route done-route" href="completed.html" target="_blank" rel="noopener noreferrer">작업완료 전체보기</a>
             </div>
             <div id="doneArchiveTaskList" class="archive-grid"></div>
           </article>
           <article class="archive-split-col">
             <div class="archive-col-head">
               <h3>보류중</h3>
-              <a class="btn btn-route hold-route-gray" href="hold.html" target="_blank" rel="noopener noreferrer">보류중 작업</a>
+              <a class="btn btn-route hold-route-gray" href="hold.html" target="_blank" rel="noopener noreferrer">보류중 작업 전체보기</a>
             </div>
             <div id="holdArchiveTaskList" class="archive-grid"></div>
           </article>
         </div>
       </section>
     </main>
+  </div>
+  <div class="admin-fab-wrap">
+    <button id="adminBtn" class="btn btn-action admin-fab-btn" onclick="handleAdminAction()">Admin</button>
+    <button id="adminLogoutBtn" class="btn btn-outline admin-fab-btn hidden" onclick="logoutAdmin()">Admin 로그아웃</button>
   </div>
 
   <div id="workerListModal" class="modal" onclick="closeOnBackdrop(event, 'workerListModal')">
@@ -138,6 +135,10 @@
       <h3>회원가입</h3>
       <input type="text" id="regName" placeholder="이름" class="pill-input">
       <input type="password" id="regPw" placeholder="비밀번호" class="pill-input">
+      <div class="signup-avatar-row">
+        <img id="regAvatarPreview" class="avatar-lg" alt="프로필 미리보기">
+        <input type="file" id="regAvatar" class="pill-input" accept="image/*" onchange="updateSignupAvatarPreview()">
+      </div>
       <button class="btn btn-primary full" onclick="registerUser()">가입하기</button>
     </div>
   </div>
@@ -162,7 +163,35 @@
       </div>
       <div class="admin-section">
         <h4>작업 정보 전체 수정/삭제</h4>
+        <div class="admin-tools">
+          <input id="adminTaskSearch" class="pill-input" placeholder="작업명/담당자 검색" oninput="updateAdminTaskQuery(this.value)">
+          <select id="adminTaskStatusFilter" class="pill-input" onchange="updateAdminTaskStatus(this.value)">
+            <option value="">전체 상태</option>
+            <option value="진행중">진행중</option>
+            <option value="컨펌중">컨펌중</option>
+            <option value="수정중">수정중</option>
+            <option value="보류중">보류중</option>
+            <option value="작업완료">작업완료</option>
+          </select>
+          <select id="adminTaskUserFilter" class="pill-input" onchange="updateAdminTaskUser(this.value)">
+            <option value="">전체 담당자</option>
+          </select>
+          <select id="adminTaskSort" class="pill-input" onchange="updateAdminTaskSort(this.value)">
+            <option value="date_desc">마감일 최신순</option>
+            <option value="date_asc">마감일 오래된순</option>
+            <option value="name_asc">작업명 오름차순</option>
+            <option value="name_desc">작업명 내림차순</option>
+          </select>
+          <select id="adminTaskPageSize" class="pill-input" onchange="updateAdminTaskPageSize(this.value)">
+            <option value="10">10개씩</option>
+            <option value="20" selected>20개씩</option>
+            <option value="30">30개씩</option>
+            <option value="50">50개씩</option>
+          </select>
+        </div>
+        <div id="adminTaskCount" class="admin-task-count"></div>
         <div id="adminTaskList" class="admin-list"></div>
+        <div id="adminTaskPager" class="admin-pager"></div>
       </div>
     </div>
   </div>

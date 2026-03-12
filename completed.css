@@ -64,6 +64,22 @@ body {
   cursor: pointer;
 }
 
+.admin-float-btn {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  border: 1px solid rgba(22, 27, 40, 0.22);
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  background: rgba(255, 255, 255, 0.78);
+  color: rgba(26, 31, 43, 0.72);
+  cursor: pointer;
+  z-index: 30;
+}
+
 select {
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -73,21 +89,23 @@ select {
 }
 
 .month-summary {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
   gap: 8px;
 }
 
 .summary-chip {
-  width: 100%;
-  display: block;
+  width: auto;
+  display: inline-block;
+  flex: 0 0 86px;
   font-family: inherit;
   border: 1px solid var(--line);
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--card);
-  padding: 10px;
+  padding: 8px 7px;
   text-align: center;
-  font-size: 0.88rem;
+  font-size: 0.84rem;
   cursor: pointer;
   transition: transform 0.12s ease, border-color 0.2s ease, background 0.2s ease;
 }
@@ -103,9 +121,15 @@ select {
 
 .summary-chip strong {
   display: block;
-  margin-top: 4px;
-  font-size: 1rem;
+  margin-top: 3px;
+  font-size: 0.92rem;
   color: var(--accent);
+}
+
+.summary-chip-undated {
+  margin-left: auto;
+  flex: 0 0 170px;
+  padding-inline: 10px;
 }
 
 .month-board {
@@ -189,12 +213,14 @@ select {
 }
 
 @media (max-width: 1000px) {
-  .month-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .summary-chip { flex-basis: 80px; }
+  .summary-chip-undated { flex-basis: 150px; }
 }
 
 @media (max-width: 700px) {
   body { padding: 12px; }
   .head { flex-direction: column; align-items: flex-start; }
-  .month-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .summary-chip { flex-basis: calc(25% - 8px); min-width: 64px; }
+  .summary-chip-undated { flex-basis: 100%; margin-left: 0; }
   .month-detail { min-height: 320px; }
 }

@@ -13,6 +13,8 @@ if (!firebase.apps.length) {
 
 const db = firebase.firestore();
 const auth = firebase.auth();
+const UNDATED_KEY = '__undated__';
+const AUTH_STORAGE_KEY = 'flowos_auth_v1';
 
 const state = {
   tasks: [],
@@ -21,6 +23,8 @@ const state = {
   initialSelectionDone: false,
   isAdmin: false
 };
+
+hydrateAdminFromStorage();
 
 auth.signInAnonymously().then(init).catch((err) => {
   console.error(err);
@@ -50,7 +54,7 @@ function render() {
 function renderAdminToggle() {
   const btn = document.getElementById('adminToggleBtn');
   if (!btn) return;
-  btn.textContent = state.isAdmin ? 'Admin 로그아웃' : 'Admin 로그인';
+  btn.textContent = state.isAdmin ? 'LOGOUT' : 'ADMIN';
 }
 
 function renderYearSelect() {
@@ -79,8 +83,9 @@ function renderYearSelect() {
 function renderSummary() {
   const summary = document.getElementById('monthSummary');
   const groups = groupByMonthForYear(state.selectedYear);
+  const undatedCount = state.tasks.filter((task) => !isValidDate(task.date)).length;
 
-  summary.innerHTML = Array.from({ length: 12 }, (_, i) => {
+  const monthButtons = Array.from({ length: 12 }, (_, i) => {
     const month = String(i + 1).padStart(2, '0');
     const count = (groups[month] || []).length;
     const active = month === state.selectedMonth ? 'active' : '';
@@ -91,15 +96,25 @@ function renderSummary() {
       </button>
     `;
   }).join('');
+
+  const undatedButton = `
+    <button class="summary-chip summary-chip-undated ${state.selectedMonth === UNDATED_KEY ? 'active' : ''}" onclick="selectMonth('${UNDATED_KEY}')">
+      <span>날짜 미지정</span>
+      <strong>${undatedCount}건</strong>
+    </button>
+  `;
+
+  summary.innerHTML = monthButtons + undatedButton;
 }
 
 function renderMonthBoard() {
   const board = document.getElementById('monthBoard');
-  const groups = groupByMonthForYear(state.selectedYear);
-  const monthItems = (groups[state.selectedMonth] || [])
-    .slice()
-    .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-  const monthLabel = Number(state.selectedMonth);
+  const monthItems = state.selectedMonth === UNDATED_KEY
+    ? state.tasks.filter((task) => !isValidDate(task.date)).slice().sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0))
+    : (groupByMonthForYear(state.selectedYear)[state.selectedMonth] || []).slice().sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const monthTitle = state.selectedMonth === UNDATED_KEY
+    ? '날짜 미지정 보류중 작업'
+    : `${state.selectedYear}년 ${Number(state.selectedMonth)}월 보류중 작업`;
 
   const body = monthItems.length
     ? `<div class="task-list large">${monthItems.map((task) => `
@@ -121,7 +136,7 @@ function renderMonthBoard() {
 
   board.innerHTML = `
     <section class="month-detail">
-      <h2>${state.selectedYear}년 ${monthLabel}월 보류중 작업</h2>
+      <h2>${monthTitle}</h2>
       ${body}
     </section>
   `;
@@ -173,7 +188,13 @@ function syncSelectedPeriodWithLatest() {
     .slice()
     .sort((a, b) => (b.date || '').localeCompare(a.date || ''))[0];
 
-  if (!latest) return;
+  if (!latest) {
+    if (state.tasks.some((task) => !isValidDate(task.date))) {
+      state.selectedMonth = UNDATED_KEY;
+      state.initialSelectionDone = true;
+    }
+    return;
+  }
   state.selectedYear = getYear(latest.date);
   state.selectedMonth = getMonth(latest.date);
   state.initialSelectionDone = true;
@@ -188,6 +209,32 @@ function getLatestMonthInYear(year) {
   return months[0] || '01';
 }
 
+function isValidDate(dateStr) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(dateStr || '');
+}
+
+function hydrateAdminFromStorage() {
+  try {
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    state.isAdmin = !!(parsed && parsed.isAdmin);
+  } catch (err) {
+    console.warn('admin state load failed', err);
+  }
+}
+
+function persistAdminState() {
+  try {
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    parsed.isAdmin = !!state.isAdmin;
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(parsed));
+  } catch (err) {
+    console.warn('admin state save failed', err);
+  }
+}
+
 function normalizeStatus(status) {
   if (status === '리뉴얼') return '작업완료';
   return status || '진행중';
@@ -196,6 +243,7 @@ function normalizeStatus(status) {
 function toggleAdmin() {
   if (state.isAdmin) {
     state.isAdmin = false;
+    persistAdminState();
     render();
     return;
   }
@@ -207,6 +255,7 @@ function toggleAdmin() {
     return;
   }
   state.isAdmin = true;
+  persistAdminState();
   render();
 }
 
@@ -247,4 +296,5 @@ function escapeHtml(value) {
 window.toggleAdmin = toggleAdmin;
 window.editTask = editTask;
 window.deleteTask = deleteTask;
+
 

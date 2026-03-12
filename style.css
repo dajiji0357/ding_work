@@ -149,6 +149,22 @@ body {
   color: #fff;
 }
 
+.admin-fab-wrap {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  z-index: 60;
+  display: flex;
+  gap: 6px;
+}
+
+.admin-fab-btn {
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 0.72rem;
+  line-height: 1.2;
+}
+
 .btn.small { padding: 6px 10px; font-size: 0.78rem; }
 .btn.full { width: 100%; }
 
@@ -255,7 +271,18 @@ input[type='date'] {
 
 .memo-title:focus { outline: none; }
 
-.memo-tools { display: flex; gap: 6px; }
+.memo-tools {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.memo-tools .btn {
+  white-space: nowrap;
+}
 
 .memo-body,
 .note-editor {
@@ -270,6 +297,11 @@ input[type='date'] {
 
 .memo-card.collapsed .note-shell {
   display: none;
+}
+
+.note-live-preview {
+  border-top: 1px solid var(--line);
+  background: #fbfdff;
 }
 
 .note-preview {
@@ -601,6 +633,49 @@ input[type='date'] {
 
 .admin-section h4 { margin: 10px 0; }
 
+.admin-tools {
+  display: grid;
+  grid-template-columns: 1.4fr repeat(4, minmax(120px, 1fr));
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.admin-tools .pill-input {
+  margin-bottom: 0;
+}
+
+.admin-task-count {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.admin-pager {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.pager-btn {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 0.78rem;
+  font-weight: 700;
+  padding: 5px 8px;
+  cursor: pointer;
+}
+
+.pager-btn.active {
+  border-color: rgba(15, 106, 97, 0.45);
+  background: rgba(15, 106, 97, 0.1);
+  color: var(--brand-dark);
+}
+
 .admin-task-grid {
   display: grid;
   grid-template-columns: 1.5fr 1fr 1fr 1fr auto;
@@ -611,6 +686,41 @@ input[type='date'] {
   display: grid;
   grid-template-columns: 1fr 1fr auto;
   gap: 6px;
+}
+
+.admin-user-grid .user-inline {
+  display: flex;
+}
+
+.admin-user-grid .user-inline .pill-input {
+  margin-bottom: 0;
+  flex: 1;
+}
+
+.user-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.avatar-xs,
+.avatar-sm,
+.avatar-lg {
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--line);
+  background: #fff;
+}
+
+.avatar-xs { width: 18px; height: 18px; }
+.avatar-sm { width: 22px; height: 22px; }
+.avatar-lg { width: 42px; height: 42px; }
+
+.signup-avatar-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
 }
 
 .hidden { display: none !important; }
@@ -629,4 +739,5 @@ input[type='date'] {
   .field.compact { width: 100%; }
   .admin-task-grid,
   .admin-user-grid { grid-template-columns: 1fr; }
+  .admin-tools { grid-template-columns: 1fr; }
 }
