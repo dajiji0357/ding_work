@@ -49,6 +49,14 @@ const FORTUNE_COOKIE_ICON = {
   행운: '🍪',
   휴식: '🥮'
 };
+const BRAND_COLOR_PRESETS = [
+  { key: 'ocean', label: '오션', light: '#2f63c8', dark: '#8fc0ff' },
+  { key: 'mint', label: '민트', light: '#1f8f6d', dark: '#88e3c1' },
+  { key: 'violet', label: '바이올렛', light: '#6d4ac9', dark: '#c5b1ff' },
+  { key: 'coral', label: '코랄', light: '#cc5b48', dark: '#ffb7a8' },
+  { key: 'amber', label: '앰버', light: '#a36a18', dark: '#ffd58f' },
+  { key: 'rose', label: '로즈', light: '#b24774', dark: '#ffb6d4' }
+];
 
 const localState = {
   users: [],
@@ -64,6 +72,9 @@ const localState = {
   editingTaskId: null,
   sharedMemoSaveTimer: null,
   memoSaveTimers: {},
+  memoPreviewTimers: {},
+  memoTypingUntil: 0,
+  memoRenderTimer: null,
   migrationTried: false,
   adminTaskQuery: '',
   adminTaskStatus: '',
@@ -137,7 +148,7 @@ function initRealtime() {
   db.collection(COLLECTIONS.memos).orderBy('createdAt', 'asc').onSnapshot({ includeMetadataChanges: true }, (snap) => {
     setFirebaseConnectedFromSnapshot(snap);
     localState.memos = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-    renderMemos();
+    maybeRenderMemos();
   }, handleRealtimeError);
 
   db.collection(COLLECTIONS.config).doc('sharedMemo').onSnapshot({ includeMetadataChanges: true }, (doc) => {
@@ -296,6 +307,12 @@ function renderBrandSelects() {
     if (!el) return;
     el.innerHTML = options || '<option value="">브랜드 없음</option>';
   });
+  const colorSelect = document.getElementById('brandColorInput');
+  if (colorSelect) {
+    const prev = colorSelect.value;
+    const selected = BRAND_COLOR_PRESETS.some((item) => item.key === prev) ? prev : 'ocean';
+    colorSelect.innerHTML = getBrandColorOptionsHtml(selected);
+  }
 }
 
 function renderBoard() {
@@ -407,6 +424,7 @@ function createCalendarTaskCardHtml(task) {
   const assignees = resolveAssigneeNames(task);
   const desc = String(task.desc || '').trim();
   const compactDesc = desc.length > 50 ? `${desc.slice(0, 50)}...` : desc;
+  const brandStyle = getBrandTextStyleAttr(task);
   return `
     <article class="calendar-task-card">
       <div class="calendar-task-head">
@@ -416,7 +434,7 @@ function createCalendarTaskCardHtml(task) {
       <div class="calendar-task-title">${escapeHtml(task.name || '')}</div>
       <div class="calendar-task-desc">${escapeHtml(compactDesc || '상세 내용 없음')}</div>
       <div class="calendar-task-meta">
-        <span class="calendar-task-brand-mini">${escapeHtml(task.brandName || '브랜드 없음')}</span>
+        <span class="calendar-task-brand-mini" ${brandStyle}>${escapeHtml(task.brandName || '브랜드 없음')}</span>
         <span class="calendar-task-assignee-mini">담당: ${escapeHtml(assignees.length ? assignees.join(', ') : '-')}</span>
       </div>
     </article>
@@ -472,7 +490,7 @@ function renderWorkerMode() {
           <div class="worker-task-item">
             <span class="worker-task-status ${getStatusClass(task.status)}">${escapeHtml(normalizeStatus(task.status))}</span>
             <span class="worker-task-name">${escapeHtml(task.name || '')}</span>
-            <span class="worker-task-brand">${escapeHtml(task.brandName || '브랜드 없음')}</span>
+            <span class="worker-task-brand" ${getBrandTextStyleAttr(task)}>${escapeHtml(task.brandName || '브랜드 없음')}</span>
             <span class="worker-task-date">${escapeHtml(task.date || '미지정')}</span>
           </div>
         `)
@@ -512,10 +530,9 @@ function createTaskCard(task) {
     : '';
 
   card.innerHTML = `
-    <div class="card-title">${escapeHtml(task.name || '')}</div>
-    <div class="card-desc">${escapeHtml(task.desc || '')}</div>
     <div class="task-status ${getStatusClass(task.status)}">${escapeHtml(normalizedStatus)}</div>
-    <div class="card-brand">브랜드: ${escapeHtml(task.brandName || '-')}</div>
+    <div class="card-desc">${escapeHtml(task.desc || '')}</div>
+    <div class="card-brand" ${getBrandTextStyleAttr(task)}>브랜드: ${escapeHtml(task.brandName || '-')}</div>
     <div class="card-meta">
       <span class="user-inline"><img class="avatar-xs" src="${escapeAttr(userAvatar)}" alt="avatar">담당: ${escapeHtml(assigneeNames.length ? assigneeNames.join(', ') : '-')}</span>
       <span>${escapeHtml(task.date || '미지정')}</span>
@@ -626,6 +643,7 @@ function addTask() {
     userName: assigneeNames[0] || '',
     brandId: brand.id,
     brandName: brand.name,
+    brandColorKey: normalizeBrandColorKey(brand.colorKey),
     status: normalizeStatus(status),
     date,
     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
@@ -1061,6 +1079,7 @@ function renderBrandManageList() {
     <div class="admin-row">
       <input id="brand-name-${brand.id}" class="pill-input" value="${escapeAttr(brand.name || '')}" placeholder="브랜드명">
       <div class="row-actions">
+        <select id="brand-color-${brand.id}" class="pill-input brand-color-select">${getBrandColorOptionsHtml(brand.colorKey || 'ocean')}</select>
         <button class="btn btn-primary small" onclick="renameBrand('${brand.id}')">수정</button>
       </div>
     </div>
@@ -1069,7 +1088,9 @@ function renderBrandManageList() {
 
 function addBrand() {
   const input = document.getElementById('brandNameInput');
+  const colorSelect = document.getElementById('brandColorInput');
   const name = input ? input.value.trim() : '';
+  const colorKey = colorSelect ? colorSelect.value : 'ocean';
   if (!name) {
     alert('브랜드명을 입력하세요.');
     return;
@@ -1081,27 +1102,33 @@ function addBrand() {
   }
   db.collection(COLLECTIONS.brands).add({
     name,
+    colorKey: normalizeBrandColorKey(colorKey),
     createdAt: firebase.firestore.FieldValue.serverTimestamp()
   }).then(() => {
     if (input) input.value = '';
+    if (colorSelect) colorSelect.value = 'ocean';
   });
 }
 
 function renameBrand(brandId) {
   const input = document.getElementById(`brand-name-${brandId}`);
+  const colorSelect = document.getElementById(`brand-color-${brandId}`);
   const next = input ? input.value.trim() : '';
+  const colorKey = colorSelect ? colorSelect.value : 'ocean';
   if (!next) {
     alert('브랜드명을 입력하세요.');
     return;
   }
   db.collection(COLLECTIONS.brands).doc(brandId).update({
     name: next,
+    colorKey: normalizeBrandColorKey(colorKey),
     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
   }).then(() => {
     const jobs = localState.tasks
       .filter((task) => task.brandId === brandId)
       .map((task) => db.collection(COLLECTIONS.tasks).doc(task.id).update({
         brandName: next,
+        brandColorKey: normalizeBrandColorKey(colorKey),
         updatedAt: firebase.firestore.FieldValue.serverTimestamp()
       }));
     return Promise.all(jobs);
@@ -1449,6 +1476,7 @@ function saveTaskFromBoard() {
     userName: assigneeNames[0] || '',
     brandId: brand.id,
     brandName: brand.name,
+    brandColorKey: normalizeBrandColorKey(brand.colorKey),
     status: normalizeStatus(status),
     date,
     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -1597,23 +1625,43 @@ function registerUser() {
 
   const file = avatarInput && avatarInput.files && avatarInput.files[0] ? avatarInput.files[0] : null;
   const fallbackAvatar = generateAvatarDataUrl(name);
-  const onSaved = () => {
+  const onSaved = (docRef, avatarValue) => {
+    const userId = docRef && docRef.id ? docRef.id : '';
+    if (localState.themeMode === 'dark' && userId) {
+      localState.currentUser = {
+        id: userId,
+        name,
+        pw,
+        avatar: avatarValue || fallbackAvatar
+      };
+      localState.pendingUserId = null;
+      localState.isAdmin = isAdminName(name);
+      persistAuthState();
+    }
     document.getElementById('regName').value = '';
     document.getElementById('regPw').value = '';
     if (avatarInput) avatarInput.value = '';
     if (avatarPreview) avatarPreview.src = generateAvatarDataUrl('U');
     closeModal('registerModal');
+    if (localState.themeMode === 'dark' && userId) {
+      window.location.reload();
+    }
   };
 
   if (file) {
-    readFileAsDataUrl(file).then((avatar) => {
+    let savedAvatar = fallbackAvatar;
+    prepareProfileAvatar(file).then((avatar) => {
+      savedAvatar = avatar || fallbackAvatar;
       return db.collection(COLLECTIONS.users).add({
         name,
         pw,
-        avatar: avatar || fallbackAvatar,
+        avatar: savedAvatar,
         createdAt: firebase.firestore.FieldValue.serverTimestamp()
       });
-    }).then(onSaved);
+    }).then((docRef) => onSaved(docRef, savedAvatar)).catch((err) => {
+      console.error(err);
+      alert(getRegisterErrorMessage(err));
+    });
     return;
   }
 
@@ -1622,7 +1670,10 @@ function registerUser() {
     pw,
     avatar: fallbackAvatar,
     createdAt: firebase.firestore.FieldValue.serverTimestamp()
-  }).then(onSaved);
+  }).then((docRef) => onSaved(docRef, fallbackAvatar)).catch((err) => {
+    console.error(err);
+    alert(getRegisterErrorMessage(err));
+  });
 }
 
 function loginUser() {
@@ -1670,6 +1721,30 @@ function addNewMemo() {
   });
 }
 
+function isMemoTypingInProgress() {
+  const active = document.activeElement;
+  if (!active || !active.id || !active.id.startsWith('memo-body-')) return false;
+  return Date.now() < Number(localState.memoTypingUntil || 0);
+}
+
+function maybeRenderMemos() {
+  if (!isMemoTypingInProgress()) {
+    if (localState.memoRenderTimer) {
+      clearTimeout(localState.memoRenderTimer);
+      localState.memoRenderTimer = null;
+    }
+    renderMemos();
+    return;
+  }
+
+  if (localState.memoRenderTimer) clearTimeout(localState.memoRenderTimer);
+  const delay = Math.max(80, Number(localState.memoTypingUntil || 0) - Date.now() + 60);
+  localState.memoRenderTimer = setTimeout(() => {
+    localState.memoRenderTimer = null;
+    renderMemos();
+  }, delay);
+}
+
 function renderMemos() {
   const grid = document.getElementById('memoGrid');
   grid.innerHTML = localState.memos.map((memo) => {
@@ -1683,7 +1758,7 @@ function renderMemos() {
           </div>
         </div>
         <div class="note-shell">
-          <textarea id="memo-body-${memo.id}" class="memo-body note-editor-pane" oninput="handleMemoInput('${memo.id}', this.value)" onpaste="handleMemoPaste(event, '${memo.id}')">${escapeHtml(memo.content || '')}</textarea>
+          <textarea id="memo-body-${memo.id}" class="memo-body note-editor-pane" onfocus="markMemoTyping()" onblur="clearMemoTyping()" oninput="handleMemoInput('${memo.id}', this.value)" onpaste="handleMemoPaste(event, '${memo.id}')">${escapeHtml(memo.content || '')}</textarea>
           <div id="memo-view-${memo.id}" class="note-view-pane note-live-preview">${renderNoteElements(memo.content || '')}</div>
         </div>
       </article>
@@ -1721,9 +1796,33 @@ function scheduleMemoSave(id, value) {
   }, 300);
 }
 
+function scheduleMemoPreview(id, value) {
+  if (localState.memoPreviewTimers[id]) {
+    clearTimeout(localState.memoPreviewTimers[id]);
+  }
+  localState.memoPreviewTimers[id] = setTimeout(() => {
+    renderMemoView(id, value);
+    delete localState.memoPreviewTimers[id];
+  }, 70);
+}
+
 function handleMemoInput(id, value) {
-  renderMemoView(id, value);
+  markMemoTyping();
+  scheduleMemoPreview(id, value);
   scheduleMemoSave(id, value);
+}
+
+function markMemoTyping() {
+  localState.memoTypingUntil = Date.now() + 1100;
+}
+
+function clearMemoTyping() {
+  localState.memoTypingUntil = 0;
+  if (localState.memoRenderTimer) {
+    clearTimeout(localState.memoRenderTimer);
+    localState.memoRenderTimer = null;
+  }
+  renderMemos();
 }
 
 function renderMemoView(id, content) {
@@ -1925,6 +2024,39 @@ function getStatusClass(status) {
   return 'status-default';
 }
 
+function normalizeBrandColorKey(key) {
+  const safe = String(key || '').trim();
+  const found = BRAND_COLOR_PRESETS.find((item) => item.key === safe);
+  return found ? found.key : BRAND_COLOR_PRESETS[0].key;
+}
+
+function getBrandColorOptionsHtml(selectedKey) {
+  const selected = normalizeBrandColorKey(selectedKey);
+  return BRAND_COLOR_PRESETS
+    .map((item) => `<option value="${item.key}" ${item.key === selected ? 'selected' : ''}>${escapeHtml(item.label)}</option>`)
+    .join('');
+}
+
+function resolveBrandColorKeyFromTask(task) {
+  if (!task) return BRAND_COLOR_PRESETS[0].key;
+  const direct = normalizeBrandColorKey(task.brandColorKey);
+  if (task.brandColorKey && direct) return direct;
+  const brand = localState.brands.find((b) => b.id === task.brandId);
+  if (brand && brand.colorKey) return normalizeBrandColorKey(brand.colorKey);
+  return BRAND_COLOR_PRESETS[0].key;
+}
+
+function getBrandTextColorByMode(colorKey) {
+  const key = normalizeBrandColorKey(colorKey);
+  const preset = BRAND_COLOR_PRESETS.find((item) => item.key === key) || BRAND_COLOR_PRESETS[0];
+  return localState.themeMode === 'dark' ? preset.dark : preset.light;
+}
+
+function getBrandTextStyleAttr(task) {
+  const color = getBrandTextColorByMode(resolveBrandColorKeyFromTask(task));
+  return `style="color: ${escapeAttr(color)};"`;
+}
+
 function getCurrentMonthValue() {
   const now = new Date();
   const y = now.getFullYear();
@@ -2058,6 +2190,16 @@ function getProfileAvatarErrorMessage(err) {
   if (code === 'not_image') return '이미지 파일만 업로드할 수 있습니다.';
   if (code === 'too_large') return '이미지가 너무 커서 저장할 수 없습니다. 더 작은 이미지를 선택해 주세요.';
   return '이미지 처리 또는 저장 중 오류가 발생했습니다.';
+}
+
+function getRegisterErrorMessage(err) {
+  const code = err && (err.code || err.message) ? String(err.code || err.message) : '';
+  if (code.includes('permission-denied')) return '저장 권한이 없습니다. 잠시 후 다시 시도하거나 관리자에게 문의해주세요.';
+  if (code.includes('unavailable')) return '서버 연결이 불안정합니다. 잠시 후 다시 시도해주세요.';
+  if (code.includes('not_image') || code.includes('too_large') || code.includes('invalid_image') || code.includes('canvas_failed')) {
+    return getProfileAvatarErrorMessage(err);
+  }
+  return '회원가입 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.';
 }
 
 function updateSignupAvatarPreview() {

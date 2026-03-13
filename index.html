@@ -207,13 +207,15 @@
     <div class="modal-content">
       <button class="close-btn" onclick="closeModal('registerModal')">&times;</button>
       <h3>회원가입</h3>
-      <div class="signup-avatar-row">
-        <img id="regAvatarPreview" class="avatar-lg" alt="프로필 미리보기">
-        <input type="file" id="regAvatar" class="pill-input" accept="image/*" onchange="updateSignupAvatarPreview()">
-      </div>
-      <input type="text" id="regName" placeholder="이름" class="pill-input">
-      <input type="password" id="regPw" placeholder="비밀번호" class="pill-input">
-      <button class="btn btn-primary full" onclick="registerUser()">가입하기</button>
+      <form id="registerForm" onsubmit="event.preventDefault(); registerUser();">
+        <div class="signup-avatar-row">
+          <img id="regAvatarPreview" class="avatar-lg" alt="프로필 미리보기">
+          <input type="file" id="regAvatar" class="pill-input" accept="image/*" onchange="updateSignupAvatarPreview()">
+        </div>
+        <input type="text" id="regName" placeholder="이름" class="pill-input">
+        <input type="password" id="regPw" placeholder="비밀번호" class="pill-input">
+        <button type="submit" class="btn btn-primary full">가입하기</button>
+      </form>
     </div>
   </div>
 
@@ -318,6 +320,7 @@
       <h3>브랜드 리스트</h3>
       <div class="inline-brand-add">
         <input type="text" id="brandNameInput" class="pill-input" placeholder="브랜드명 추가" maxlength="50">
+        <select id="brandColorInput" class="pill-input"></select>
         <button class="btn btn-primary" onclick="addBrand()">추가</button>
       </div>
       <div id="brandManageList" class="admin-list"></div>
