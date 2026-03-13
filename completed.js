@@ -32,7 +32,7 @@ auth.signInAnonymously().then(init).catch((err) => {
 });
 
 function init() {
-  db.collection('workflow_tasks').orderBy('date').onSnapshot((snap) => {
+  db.collection('work_manager_tasks').orderBy('date').onSnapshot((snap) => {
     state.tasks = snap.docs
       .map((doc) => ({ id: doc.id, ...doc.data() }))
       .filter((task) => normalizeStatus(task.status) === '작업완료');
@@ -271,7 +271,7 @@ function editTask(taskId) {
   const nextDate = prompt('날짜 수정 (YYYY-MM-DD)', task.date || '');
   if (nextDate === null) return;
 
-  db.collection('workflow_tasks').doc(taskId).update({
+  db.collection('work_manager_tasks').doc(taskId).update({
     name: nextName.trim(),
     userName: nextUser.trim(),
     date: nextDate.trim()
@@ -281,7 +281,7 @@ function editTask(taskId) {
 function deleteTask(taskId) {
   if (!state.isAdmin) return;
   if (!confirm('이 작업을 삭제할까요?')) return;
-  db.collection('workflow_tasks').doc(taskId).delete();
+  db.collection('work_manager_tasks').doc(taskId).delete();
 }
 
 function escapeHtml(value) {

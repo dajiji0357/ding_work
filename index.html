@@ -14,13 +14,16 @@
     <header class="main-header glass">
       <div class="brand-wrap">
         <div class="logo-badge">Work manager</div>
+        <button id="themeToggleBtn" class="theme-toggle-btn" type="button" onclick="toggleThemeMode()" aria-label="다크모드 전환" title="다크모드">
+          <span id="themeToggleIcon" aria-hidden="true">🌙</span>
+        </button>
+        <div id="syncStatus" class="status-indicator status-mini">SYNCING...</div>
       </div>
 
       <div class="header-right">
-        <div id="syncStatus" class="status-indicator">SYNCING...</div>
-        <div id="loginInfo" class="user-pill">Guest</div>
-        <button class="btn btn-outline" onclick="openModal('workerListModal')">작업자 관리</button>
-        <button class="btn btn-outline" onclick="openModal('registerModal')">회원가입</button>
+        <div id="loginInfo" class="user-pill"><img class="avatar-xs" src="" alt="avatar"><span>Guest</span></div>
+        <button id="profileBtn" class="btn btn-outline hidden" onclick="openProfileModal()">프로필수정</button>
+        <button id="signupBtn" class="btn btn-outline" onclick="openModal('registerModal')">회원가입</button>
         <button id="loginBtn" class="btn btn-outline" onclick="openModal('loginModal')">로그인</button>
         <button id="userLogoutBtn" class="btn btn-outline hidden" onclick="logoutUser()">로그아웃</button>
       </div>
@@ -28,43 +31,43 @@
     <div id="networkBanner" class="network-banner hidden"></div>
 
     <section class="command-center glass">
-      <div class="section-head">
-        <h2>새 작업 등록</h2>
-      </div>
-      <input type="text" id="taskName" class="task-input" placeholder="작업 내용을 입력하세요" maxlength="150">
-      <div class="input-row">
-        <div class="field">
-          <label for="taskUserSelect">담당자</label>
-          <select id="taskUserSelect"></select>
+      <div class="section-head section-head-stack">
+        <h2>작업 도구</h2>
+        <div class="section-tools section-tools-split">
+          <div class="section-tools-left">
+            <button class="btn tool-btn-create" onclick="openModal('taskCreateModal')">새 작업 등록</button>
+            <button class="btn tool-btn-gym" onclick="openGymMoodModal()">월간 짐무드</button>
+            <button class="btn tool-btn-brand" onclick="openModal('brandListModal')">브랜드 리스트</button>
+          </div>
+          <div class="section-tools-right">
+            <button class="btn tool-btn-refresh" onclick="openModal('refreshModal')">리프레시</button>
+          </div>
         </div>
-        <div class="field">
-          <label for="taskCategorySelect">카테고리</label>
-          <select id="taskCategorySelect">
-            <option value="진행중">진행중</option>
-            <option value="컨펌중">컨펌중</option>
-            <option value="수정중">수정중</option>
-            <option value="보류중">보류중</option>
-            <option value="작업완료">작업완료</option>
-          </select>
-        </div>
-        <div class="field">
-          <label for="taskDate">마감일</label>
-          <input type="date" id="taskDate">
-        </div>
-        <button class="btn btn-primary" onclick="addTask()">업무 등록</button>
       </div>
     </section>
 
     <section class="memo-workspace">
       <div class="section-head">
         <h2>공용 메모 보드</h2>
-        <button class="btn btn-primary" onclick="addNewMemo()">새 메모 제목</button>
+        <button class="btn btn-primary" onclick="addNewMemo()">메모 등록</button>
       </div>
       <div id="memoGrid" class="memo-grid"></div>
     </section>
 
     <main class="workspace">
+      <section class="panel glass view-switch-panel">
+        <div class="view-switch-row">
+          <button id="boardViewBtn" class="btn btn-primary" onclick="switchView('board')">보드모드</button>
+          <button id="calendarViewBtn" class="btn btn-outline" onclick="switchView('calendar')">캘린더모드</button>
+          <button id="workerViewBtn" class="btn btn-outline" onclick="switchView('worker')">작업자모드</button>
+        </div>
+      </section>
+
       <section class="board glass">
+        <div class="col col-wait" id="업무대기" ondrop="drop(event)" ondragover="allowDrop(event)">
+          <h3>업무대기</h3>
+          <div id="업무대기-list" class="drop-zone"></div>
+        </div>
         <div class="col col-progress" id="진행중" ondrop="drop(event)" ondragover="allowDrop(event)">
           <h3>진행중</h3>
           <div id="진행중-list" class="drop-zone"></div>
@@ -83,12 +86,34 @@
         </div>
       </section>
 
+      <section id="calendarView" class="panel glass calendar-panel hidden">
+        <div class="calendar-current-nav">
+          <button class="calendar-nav-btn" type="button" onclick="moveCalendarMonth(-1)">&lt;</button>
+          <div id="calendarCurrentLabel" class="calendar-current-top"></div>
+          <button class="calendar-nav-btn" type="button" onclick="moveCalendarMonth(1)">&gt;</button>
+        </div>
+        <div class="section-head">
+          <h2>업무현황 캘린더</h2>
+          <div class="calendar-head-right">
+            <input id="calendarMonth" type="month" class="pill-input calendar-month" onchange="setCalendarMonth(this.value)">
+          </div>
+        </div>
+        <div id="calendarGrid" class="calendar-grid"></div>
+      </section>
+
+      <section id="workerView" class="panel glass worker-panel hidden">
+        <div class="section-head">
+          <h2>작업자 업무현황</h2>
+        </div>
+        <div id="workerModeGrid" class="worker-mode-grid"></div>
+      </section>
+
       <section class="panel glass shared-note-panel">
         <div class="section-head">
           <h2>전체 공용 메모</h2>
         </div>
         <div class="note-shell shared-note-shell">
-          <textarea id="archiveStaticMemo" class="note-editor note-editor-pane" onpaste="handleSharedPaste(event)" placeholder="링크: https://example.com 또는 [제목](https://...)"></textarea>
+          <textarea id="archiveStaticMemo" class="note-editor note-editor-pane" onpaste="handleSharedPaste(event)" placeholder="메모 내용을 입력해주세요"></textarea>
           <div id="sharedView" class="note-view-pane note-live-preview"></div>
         </div>
       </section>
@@ -121,11 +146,60 @@
     <button id="adminLogoutBtn" class="btn btn-outline admin-fab-btn hidden" onclick="logoutAdmin()">Admin 로그아웃</button>
   </div>
 
+  <div id="taskCreateModal" class="modal">
+    <div class="modal-content wide">
+      <button class="close-btn" onclick="closeModal('taskCreateModal')">&times;</button>
+      <h3>새 작업 등록</h3>
+      <input type="text" id="taskName" class="task-input" placeholder="업무 제목을 입력하세요" maxlength="150">
+      <textarea id="taskDesc" class="task-input task-desc-input" placeholder="상세 내용을 입력하세요" maxlength="500"></textarea>
+      <textarea id="taskBackupLocation" class="task-input task-desc-input" placeholder="백업위치 (선택)" maxlength="2000"></textarea>
+      <div class="input-row">
+        <div class="field">
+          <label for="taskUserSelect1">담당자 1</label>
+          <select id="taskUserSelect1"></select>
+        </div>
+        <div class="field">
+          <label for="taskUserSelect2">담당자 2</label>
+          <select id="taskUserSelect2"></select>
+        </div>
+        <div class="field">
+          <label for="taskBrandSelect">브랜드</label>
+          <select id="taskBrandSelect"></select>
+        </div>
+        <div class="field">
+          <label for="taskStatusSelect">업무현황</label>
+          <select id="taskStatusSelect">
+            <option value="업무대기">업무대기</option>
+            <option value="진행중">진행중</option>
+            <option value="컨펌중">컨펌중</option>
+            <option value="수정중">수정중</option>
+            <option value="작업완료">작업완료</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="taskDate">마감일</label>
+          <input type="date" id="taskDate">
+        </div>
+        <button class="btn btn-primary" onclick="addTask()">업무 등록</button>
+      </div>
+    </div>
+  </div>
+
   <div id="workerListModal" class="modal" onclick="closeOnBackdrop(event, 'workerListModal')">
     <div class="modal-content">
       <button class="close-btn" onclick="closeModal('workerListModal')">&times;</button>
-      <h3>작업자 관리</h3>
-      <div id="fullWorkerList" class="worker-list-stack"></div>
+      <h3>프로필 수정</h3>
+      <div class="profile-editor">
+        <div class="profile-avatar-row">
+          <img id="profileAvatarPreview" class="avatar-lg" alt="프로필 미리보기">
+          <input type="file" id="profileAvatarInput" class="pill-input" accept="image/*" onchange="updateProfileAvatarPreview()">
+        </div>
+        <label class="modal-label" for="profileNameInput">닉네임</label>
+        <input id="profileNameInput" class="pill-input" placeholder="닉네임">
+        <label class="modal-label" for="profilePwInput">비밀번호</label>
+        <input id="profilePwInput" class="pill-input" type="password" placeholder="비밀번호">
+        <button class="btn btn-primary full" onclick="saveProfile()">저장</button>
+      </div>
     </div>
   </div>
 
@@ -133,12 +207,12 @@
     <div class="modal-content">
       <button class="close-btn" onclick="closeModal('registerModal')">&times;</button>
       <h3>회원가입</h3>
-      <input type="text" id="regName" placeholder="이름" class="pill-input">
-      <input type="password" id="regPw" placeholder="비밀번호" class="pill-input">
       <div class="signup-avatar-row">
         <img id="regAvatarPreview" class="avatar-lg" alt="프로필 미리보기">
         <input type="file" id="regAvatar" class="pill-input" accept="image/*" onchange="updateSignupAvatarPreview()">
       </div>
+      <input type="text" id="regName" placeholder="이름" class="pill-input">
+      <input type="password" id="regPw" placeholder="비밀번호" class="pill-input">
       <button class="btn btn-primary full" onclick="registerUser()">가입하기</button>
     </div>
   </div>
@@ -167,10 +241,10 @@
           <input id="adminTaskSearch" class="pill-input" placeholder="작업명/담당자 검색" oninput="updateAdminTaskQuery(this.value)">
           <select id="adminTaskStatusFilter" class="pill-input" onchange="updateAdminTaskStatus(this.value)">
             <option value="">전체 상태</option>
+            <option value="업무대기">업무대기</option>
             <option value="진행중">진행중</option>
             <option value="컨펌중">컨펌중</option>
             <option value="수정중">수정중</option>
-            <option value="보류중">보류중</option>
             <option value="작업완료">작업완료</option>
           </select>
           <select id="adminTaskUserFilter" class="pill-input" onchange="updateAdminTaskUser(this.value)">
@@ -200,17 +274,92 @@
     <div class="modal-content">
       <button class="close-btn" onclick="closeModal('taskEditModal')">&times;</button>
       <h3>작업 수정</h3>
+      <label class="modal-label" for="editTaskName">제목</label>
       <input type="text" id="editTaskName" class="pill-input" placeholder="작업명">
-      <select id="editTaskUserSelect" class="pill-input"></select>
-      <select id="editTaskStatusSelect" class="pill-input">
-        <option value="진행중">진행중</option>
-        <option value="컨펌중">컨펌중</option>
-        <option value="수정중">수정중</option>
-        <option value="보류중">보류중</option>
-        <option value="작업완료">작업완료</option>
-      </select>
+      <label class="modal-label" for="editTaskDesc">상세내용</label>
+      <textarea id="editTaskDesc" class="pill-input task-desc-input" placeholder="상세 내용을 입력하세요" maxlength="500"></textarea>
+      <label class="modal-label" for="editTaskBackupLocation">백업위치 (선택)</label>
+      <textarea id="editTaskBackupLocation" class="pill-input task-desc-input" placeholder="백업위치를 입력하세요" maxlength="2000"></textarea>
+      <div class="modal-half-grid">
+        <div class="modal-field">
+          <label class="modal-label" for="editTaskUserSelect1">담당자 1</label>
+          <select id="editTaskUserSelect1" class="pill-input"></select>
+        </div>
+        <div class="modal-field">
+          <label class="modal-label" for="editTaskUserSelect2">담당자 2</label>
+          <select id="editTaskUserSelect2" class="pill-input"></select>
+        </div>
+      </div>
+      <div class="modal-half-grid">
+        <div class="modal-field">
+          <label class="modal-label" for="editTaskBrandSelect">브랜드</label>
+          <select id="editTaskBrandSelect" class="pill-input"></select>
+        </div>
+        <div class="modal-field">
+          <label class="modal-label" for="editTaskStatusSelect">업무현황</label>
+          <select id="editTaskStatusSelect" class="pill-input">
+            <option value="업무대기">업무대기</option>
+            <option value="진행중">진행중</option>
+            <option value="컨펌중">컨펌중</option>
+            <option value="수정중">수정중</option>
+            <option value="작업완료">작업완료</option>
+          </select>
+        </div>
+      </div>
+      <label class="modal-label" for="editTaskDate">마감일</label>
       <input type="date" id="editTaskDate" class="pill-input">
       <button class="btn btn-primary full" onclick="saveTaskFromBoard()">저장</button>
+    </div>
+  </div>
+
+  <div id="brandListModal" class="modal" onclick="closeOnBackdrop(event, 'brandListModal')">
+    <div class="modal-content">
+      <button class="close-btn" onclick="closeModal('brandListModal')">&times;</button>
+      <h3>브랜드 리스트</h3>
+      <div class="inline-brand-add">
+        <input type="text" id="brandNameInput" class="pill-input" placeholder="브랜드명 추가" maxlength="50">
+        <button class="btn btn-primary" onclick="addBrand()">추가</button>
+      </div>
+      <div id="brandManageList" class="admin-list"></div>
+    </div>
+  </div>
+
+  <div id="refreshModal" class="modal" onclick="closeOnBackdrop(event, 'refreshModal')">
+    <div class="modal-content">
+      <button class="close-btn" onclick="closeModal('refreshModal')">&times;</button>
+      <h3>리프레시 포춘쿠키</h3>
+      <div class="fortune-wrap">
+        <div id="fortuneCookie" class="fortune-cookie">🥠</div>
+        <div class="fortune-types">
+          <button class="fortune-type-btn" onclick="crackFortuneCookie('집중')">
+            <span class="fortune-type-icon">🥠</span>
+            <span>집중 쿠키</span>
+          </button>
+          <button class="fortune-type-btn" onclick="crackFortuneCookie('행운')">
+            <span class="fortune-type-icon">🍪</span>
+            <span>행운 쿠키</span>
+          </button>
+          <button class="fortune-type-btn" onclick="crackFortuneCookie('휴식')">
+            <span class="fortune-type-icon">🥮</span>
+            <span>휴식 쿠키</span>
+          </button>
+        </div>
+        <button class="btn btn-primary full" onclick="crackFortuneCookie()">랜덤으로 깨기</button>
+        <div id="fortuneResult" class="fortune-result">오늘의 운세를 확인해보세요.</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="gymMoodModal" class="modal" onclick="closeOnBackdrop(event, 'gymMoodModal')">
+    <div class="modal-content wide">
+      <button class="close-btn" onclick="closeModal('gymMoodModal')">&times;</button>
+      <h3>월간짐무드 체크</h3>
+      <div class="gym-toolbar">
+        <input id="gymMonthInput" class="pill-input" type="month" onchange="setGymMoodMonth(this.value)">
+        <input id="gymBranchInput" class="pill-input" type="text" placeholder="헬스장 지점명 입력">
+        <button class="btn btn-primary" onclick="addGymBranch()">지점 추가</button>
+      </div>
+      <div id="gymMoodList" class="gym-mood-list"></div>
     </div>
   </div>
 
