@@ -30,6 +30,19 @@
     </header>
     <div id="networkBanner" class="network-banner hidden"></div>
 
+    <section class="memo-workspace">
+      <div class="memo-walker-track" aria-hidden="true">
+        <div class="memo-walker">
+          <img id="memoWalkerImg" class="memo-walker-img" src="assets/hotdog-walker.png" alt="" onerror="this.onerror=null;this.src='data:image/svg+xml;utf8,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22120%22 height=%22120%22 viewBox=%220 0 120 120%22%3E%3Ctext x=%2250%25%22 y=%2258%25%22 text-anchor=%22middle%22 font-size=%2280%22%3E%F0%9F%8C%AD%3C/text%3E%3C/svg%3E';">
+        </div>
+      </div>
+      <div class="section-head">
+        <h2>공용 메모 보드</h2>
+        <button class="btn btn-primary" onclick="addNewMemo()">메모 등록</button>
+      </div>
+      <div id="memoGrid" class="memo-grid"></div>
+    </section>
+
     <section class="command-center glass">
       <div class="section-head section-head-stack">
         <h2>작업 도구</h2>
@@ -44,14 +57,6 @@
           </div>
         </div>
       </div>
-    </section>
-
-    <section class="memo-workspace">
-      <div class="section-head">
-        <h2>공용 메모 보드</h2>
-        <button class="btn btn-primary" onclick="addNewMemo()">메모 등록</button>
-      </div>
-      <div id="memoGrid" class="memo-grid"></div>
     </section>
 
     <main class="workspace">
@@ -110,7 +115,7 @@
 
       <section class="panel glass shared-note-panel">
         <div class="section-head">
-          <h2>전체 공용 메모</h2>
+          <h2>기타 공용 메모</h2>
         </div>
         <div class="note-shell shared-note-shell">
           <textarea id="archiveStaticMemo" class="note-editor note-editor-pane" onpaste="handleSharedPaste(event)" placeholder="메모 내용을 입력해주세요"></textarea>
@@ -317,11 +322,24 @@
   <div id="brandListModal" class="modal" onclick="closeOnBackdrop(event, 'brandListModal')">
     <div class="modal-content">
       <button class="close-btn" onclick="closeModal('brandListModal')">&times;</button>
-      <h3>브랜드 리스트</h3>
+      <button id="brandEditToggleBtn" type="button" class="btn btn-outline small brand-edit-floating" onclick="toggleBrandEditMode()">수정하기</button>
+      <div class="brand-modal-head">
+        <h3>브랜드 리스트</h3>
+      </div>
+      <div class="brand-add-guide">브랜드 추가 / 색상 지정</div>
       <div class="inline-brand-add">
-        <input type="text" id="brandNameInput" class="pill-input" placeholder="브랜드명 추가" maxlength="50">
-        <select id="brandColorInput" class="pill-input"></select>
-        <button class="btn btn-primary" onclick="addBrand()">추가</button>
+        <div class="brand-add-top">
+          <input type="text" id="brandNameInput" class="pill-input" placeholder="브랜드명 추가" maxlength="50">
+          <input type="hidden" id="brandColorInput" value="ocean">
+          <div class="brand-color-pop">
+            <button id="brandColorToggleBtn" type="button" class="btn btn-outline brand-color-toggle" onclick="toggleBrandColorPicker()">색상 선택</button>
+            <div id="brandColorPickerWrap" class="brand-color-popover hidden">
+              <div id="brandColorPicker" class="brand-color-picker"></div>
+            </div>
+          </div>
+          <button class="btn btn-primary" onclick="addBrand()">추가</button>
+        </div>
+        <textarea id="brandBackupInput" class="pill-input task-desc-input brand-backup-input" placeholder="백업위치 (선택)" maxlength="2000"></textarea>
       </div>
       <div id="brandManageList" class="admin-list"></div>
     </div>
@@ -330,25 +348,102 @@
   <div id="refreshModal" class="modal" onclick="closeOnBackdrop(event, 'refreshModal')">
     <div class="modal-content">
       <button class="close-btn" onclick="closeModal('refreshModal')">&times;</button>
-      <h3>리프레시 포춘쿠키</h3>
-      <div class="fortune-wrap">
-        <div id="fortuneCookie" class="fortune-cookie">🥠</div>
-        <div class="fortune-types">
-          <button class="fortune-type-btn" onclick="crackFortuneCookie('집중')">
-            <span class="fortune-type-icon">🥠</span>
-            <span>집중 쿠키</span>
-          </button>
-          <button class="fortune-type-btn" onclick="crackFortuneCookie('행운')">
-            <span class="fortune-type-icon">🍪</span>
-            <span>행운 쿠키</span>
-          </button>
-          <button class="fortune-type-btn" onclick="crackFortuneCookie('휴식')">
-            <span class="fortune-type-icon">🥮</span>
-            <span>휴식 쿠키</span>
-          </button>
+      <h3>리프레시 랜덤박스</h3>
+      <div class="refresh-mode-tabs">
+        <button id="refreshModeFortuneBtn" class="refresh-mode-btn active" type="button" onclick="setRefreshMode('fortune')">
+          <span class="refresh-mode-ico">🥠</span>
+          <span>포춘쿠키</span>
+        </button>
+        <button id="refreshModeLottoBtn" class="refresh-mode-btn" type="button" onclick="setRefreshMode('lotto')">
+          <span class="refresh-mode-ico">🎱</span>
+          <span>로또번호</span>
+        </button>
+        <button id="refreshModeGameBtn" class="refresh-mode-btn refresh-mode-link" type="button" onclick="openRefreshMiniGame()">
+          <span class="refresh-mode-ico">🎮</span>
+          <span>미니게임</span>
+        </button>
+      </div>
+      <div id="refreshFortunePanel" class="refresh-panel">
+        <div class="fortune-wrap">
+          <div id="fortuneCookie" class="fortune-cookie">🥠</div>
+          <div class="fortune-types">
+            <button class="fortune-type-btn" onclick="crackFortuneCookie('집중')">
+              <span class="fortune-type-icon">🥠</span>
+              <span>집중 쿠키</span>
+            </button>
+            <button class="fortune-type-btn" onclick="crackFortuneCookie('행운')">
+              <span class="fortune-type-icon">🍪</span>
+              <span>행운 쿠키</span>
+            </button>
+            <button class="fortune-type-btn" onclick="crackFortuneCookie('휴식')">
+              <span class="fortune-type-icon">🥮</span>
+              <span>휴식 쿠키</span>
+            </button>
+          </div>
+          <button class="btn btn-primary full" onclick="crackFortuneCookie()">랜덤으로 깨기</button>
+          <div id="fortuneResult" class="fortune-result">오늘의 운세를 확인해보세요.</div>
         </div>
-        <button class="btn btn-primary full" onclick="crackFortuneCookie()">랜덤으로 깨기</button>
-        <div id="fortuneResult" class="fortune-result">오늘의 운세를 확인해보세요.</div>
+      </div>
+      <div id="refreshLottoPanel" class="refresh-panel hidden">
+        <div class="lotto-wrap">
+          <div id="lottoRollingStage" class="lotto-rolling-stage">
+            <div class="lotto-rolling-hint">추첨기 가동 준비</div>
+          </div>
+          <div id="lottoLines" class="lotto-lines">
+            <div class="lotto-line">
+              <span class="lotto-line-label">A</span>
+              <div class="lotto-line-balls">
+                <div class="lotto-main-balls">
+                  <span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span>
+                </div>
+                <span class="lotto-plus-mini">+</span>
+                <div class="lotto-bonus-ball"><span class="lotto-ball empty">?</span></div>
+              </div>
+            </div>
+            <div class="lotto-line">
+              <span class="lotto-line-label">B</span>
+              <div class="lotto-line-balls">
+                <div class="lotto-main-balls">
+                  <span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span>
+                </div>
+                <span class="lotto-plus-mini">+</span>
+                <div class="lotto-bonus-ball"><span class="lotto-ball empty">?</span></div>
+              </div>
+            </div>
+            <div class="lotto-line">
+              <span class="lotto-line-label">C</span>
+              <div class="lotto-line-balls">
+                <div class="lotto-main-balls">
+                  <span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span>
+                </div>
+                <span class="lotto-plus-mini">+</span>
+                <div class="lotto-bonus-ball"><span class="lotto-ball empty">?</span></div>
+              </div>
+            </div>
+            <div class="lotto-line">
+              <span class="lotto-line-label">D</span>
+              <div class="lotto-line-balls">
+                <div class="lotto-main-balls">
+                  <span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span>
+                </div>
+                <span class="lotto-plus-mini">+</span>
+                <div class="lotto-bonus-ball"><span class="lotto-ball empty">?</span></div>
+              </div>
+            </div>
+            <div class="lotto-line">
+              <span class="lotto-line-label">E</span>
+              <div class="lotto-line-balls">
+                <div class="lotto-main-balls">
+                  <span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span>
+                </div>
+                <span class="lotto-plus-mini">+</span>
+                <div class="lotto-bonus-ball"><span class="lotto-ball empty">?</span></div>
+              </div>
+            </div>
+          </div>
+          <button id="lottoDrawBtn" class="btn btn-primary full" onclick="drawRefreshLotto()">번호 5줄 뽑기</button>
+          <div id="lottoResultText" class="fortune-result">번호 5줄 뽑기를 눌러주세요.</div>
+        </div>
       </div>
     </div>
   </div>

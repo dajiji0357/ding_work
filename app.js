@@ -49,13 +49,25 @@ const FORTUNE_COOKIE_ICON = {
   행운: '🍪',
   휴식: '🥮'
 };
+const REFRESH_MODES = ['fortune', 'lotto'];
+const LOTTO_MAX_NUMBER = 45;
+const LOTTO_PICK_COUNT = 6;
+const LOTTO_LINE_COUNT = 5;
+const LOTTO_DRAW_DELAY_MS = 1350;
+let refreshLottoDrawToken = 0;
 const BRAND_COLOR_PRESETS = [
   { key: 'ocean', label: '오션', light: '#2f63c8', dark: '#8fc0ff' },
   { key: 'mint', label: '민트', light: '#1f8f6d', dark: '#88e3c1' },
   { key: 'violet', label: '바이올렛', light: '#6d4ac9', dark: '#c5b1ff' },
   { key: 'coral', label: '코랄', light: '#cc5b48', dark: '#ffb7a8' },
   { key: 'amber', label: '앰버', light: '#a36a18', dark: '#ffd58f' },
-  { key: 'rose', label: '로즈', light: '#b24774', dark: '#ffb6d4' }
+  { key: 'rose', label: '로즈', light: '#b24774', dark: '#ffb6d4' },
+  { key: 'sky', label: '스카이', light: '#2f90c8', dark: '#9fe1ff' },
+  { key: 'lime', label: '라임', light: '#5d9c1f', dark: '#c8ef96' },
+  { key: 'plum', label: '플럼', light: '#7f3b8f', dark: '#dda9ea' },
+  { key: 'slate', label: '슬레이트', light: '#4c617c', dark: '#b9c8dd' },
+  { key: 'brick', label: '브릭', light: '#9b4537', dark: '#efb2a7' },
+  { key: 'teal', label: '틸', light: '#1f7c85', dark: '#93d9df' }
 ];
 
 const localState = {
@@ -87,7 +99,8 @@ const localState = {
   gymMoodRows: [],
   gymMoodMonth: getCurrentMonthValue(),
   gymMoodDragId: '',
-  themeMode: 'light'
+  themeMode: 'light',
+  brandEditMode: false
 };
 
 hydrateAuthFromStorage();
@@ -307,11 +320,15 @@ function renderBrandSelects() {
     if (!el) return;
     el.innerHTML = options || '<option value="">브랜드 없음</option>';
   });
-  const colorSelect = document.getElementById('brandColorInput');
-  if (colorSelect) {
-    const prev = colorSelect.value;
+  const colorInput = document.getElementById('brandColorInput');
+  const colorPicker = document.getElementById('brandColorPicker');
+  if (colorInput && colorPicker) {
+    const prev = colorInput.value;
     const selected = BRAND_COLOR_PRESETS.some((item) => item.key === prev) ? prev : 'ocean';
-    colorSelect.innerHTML = getBrandColorOptionsHtml(selected);
+    colorInput.value = selected;
+    colorPicker.innerHTML = getBrandColorPickerHtml(selected, 'brandColorInput', 'brandColorPicker');
+    applyBrandNameColorPreview(selected);
+    updateBrandColorToggleButton(selected, 'brandColorToggleBtn', false);
   }
 }
 
@@ -334,12 +351,30 @@ function renderBoard() {
     const zone = document.getElementById(`${status}-list`);
     if (!zone) return;
 
-    const sorted = taskGroups[status]
-      .slice()
-      .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    const sorted = getSortedTasksForStatus(status, taskGroups[status]);
 
     sorted.forEach((task) => zone.appendChild(createTaskCard(task)));
   });
+}
+
+function getSortedTasksForStatus(status, sourceTasks) {
+  const list = (Array.isArray(sourceTasks) ? sourceTasks : localState.tasks.filter((task) => normalizeStatus(task.status) === status)).slice();
+  const withOrder = list.filter((task) => Number.isFinite(Number(task.sortOrder)));
+  const withoutOrder = list.filter((task) => !Number.isFinite(Number(task.sortOrder)));
+  withOrder.sort((a, b) => Number(a.sortOrder) - Number(b.sortOrder));
+  withoutOrder.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  return withOrder.concat(withoutOrder);
+}
+
+function getNextTaskSortOrder(status) {
+  const normalized = normalizeStatus(status);
+  const maxOrder = localState.tasks
+    .filter((task) => normalizeStatus(task.status) === normalized)
+    .reduce((max, task) => {
+      const n = Number(task.sortOrder);
+      return Number.isFinite(n) ? Math.max(max, n) : max;
+    }, 0);
+  return maxOrder + 1;
 }
 
 function renderViewMode() {
@@ -530,7 +565,13 @@ function createTaskCard(task) {
     : '';
 
   card.innerHTML = `
-    <div class="task-status ${getStatusClass(task.status)}">${escapeHtml(normalizedStatus)}</div>
+    <div class="task-top-row">
+      <div class="task-status ${getStatusClass(task.status)}">${escapeHtml(normalizedStatus)}</div>
+      <div class="task-order-controls">
+        <button class="task-order-btn" type="button" title="위로" aria-label="위로" onclick="moveTaskWithinStatus('${task.id}', -1)">↑</button>
+        <button class="task-order-btn" type="button" title="아래로" aria-label="아래로" onclick="moveTaskWithinStatus('${task.id}', 1)">↓</button>
+      </div>
+    </div>
     <div class="card-desc">${escapeHtml(task.desc || '')}</div>
     <div class="card-brand" ${getBrandTextStyleAttr(task)}>브랜드: ${escapeHtml(task.brandName || '-')}</div>
     <div class="card-meta">
@@ -545,6 +586,29 @@ function createTaskCard(task) {
   `;
 
   return card;
+}
+
+function moveTaskWithinStatus(taskId, direction) {
+  const task = localState.tasks.find((item) => item.id === taskId);
+  if (!task) return;
+  const status = normalizeStatus(task.status);
+  const sorted = getSortedTasksForStatus(status);
+  const currentIdx = sorted.findIndex((item) => item.id === taskId);
+  const nextIdx = currentIdx + Number(direction || 0);
+  if (currentIdx < 0 || nextIdx < 0 || nextIdx >= sorted.length) return;
+
+  const reordered = sorted.slice();
+  const [moved] = reordered.splice(currentIdx, 1);
+  reordered.splice(nextIdx, 0, moved);
+
+  const batch = db.batch();
+  reordered.forEach((item, idx) => {
+    batch.update(db.collection(COLLECTIONS.tasks).doc(item.id), {
+      sortOrder: idx + 1,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  });
+  batch.commit();
 }
 
 function getTaskSticker(status) {
@@ -645,6 +709,7 @@ function addTask() {
     brandName: brand.name,
     brandColorKey: normalizeBrandColorKey(brand.colorKey),
     status: normalizeStatus(status),
+    sortOrder: getNextTaskSortOrder(status),
     date,
     createdAt: firebase.firestore.FieldValue.serverTimestamp(),
     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -668,8 +733,10 @@ function drop(e) {
     target = target.parentElement;
   }
   if (!id || !target) return;
+  const nextStatus = normalizeStatus(target.id);
   db.collection(COLLECTIONS.tasks).doc(id).update({
-    status: normalizeStatus(target.id),
+    status: nextStatus,
+    sortOrder: getNextTaskSortOrder(nextStatus),
     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
   });
 }
@@ -1070,6 +1137,7 @@ function deleteUser(userId) {
 
 function renderBrandManageList() {
   const list = document.getElementById('brandManageList');
+  updateBrandEditToggleButton();
   if (!list) return;
   if (!localState.brands.length) {
     list.innerHTML = '<div class="card">등록된 브랜드가 없습니다.</div>';
@@ -1077,20 +1145,40 @@ function renderBrandManageList() {
   }
   list.innerHTML = localState.brands.map((brand) => `
     <div class="admin-row">
-      <input id="brand-name-${brand.id}" class="pill-input" value="${escapeAttr(brand.name || '')}" placeholder="브랜드명">
-      <div class="row-actions">
-        <select id="brand-color-${brand.id}" class="pill-input brand-color-select">${getBrandColorOptionsHtml(brand.colorKey || 'ocean')}</select>
+      <div class="brand-edit-left">
+        <input id="brand-name-${brand.id}" class="pill-input" value="${escapeAttr(brand.name || '')}" placeholder="브랜드명" ${localState.brandEditMode ? '' : 'readonly'} style="color:${escapeAttr(getBrandTextColorByMode(brand.colorKey || 'ocean'))};caret-color:${escapeAttr(getBrandTextColorByMode(brand.colorKey || 'ocean'))};">
+        <details class="backup-detail">
+          <summary>${localState.brandEditMode ? '백업위치 보기/수정' : '백업위치 열어보기'}</summary>
+          <textarea id="brand-backup-${brand.id}" class="pill-input task-desc-input" placeholder="백업위치 (선택)" maxlength="2000" ${localState.brandEditMode ? '' : 'readonly'}>${escapeHtml(brand.backupLocation || '')}</textarea>
+        </details>
+      </div>
+      <div class="row-actions ${localState.brandEditMode ? '' : 'hidden'}">
+        <input id="brand-color-value-${brand.id}" type="hidden" value="${escapeAttr(normalizeBrandColorKey(brand.colorKey || 'ocean'))}">
+        <div class="brand-color-pop">
+          <button id="brand-color-toggle-${brand.id}" type="button" class="btn btn-outline brand-color-toggle" onclick="toggleBrandColorPicker('brand-color-wrap-${brand.id}')"></button>
+          <div id="brand-color-wrap-${brand.id}" class="brand-color-popover hidden">
+            <div id="brand-color-${brand.id}" class="brand-color-picker">${getBrandColorPickerHtml(brand.colorKey || 'ocean', `brand-color-value-${brand.id}`, `brand-color-${brand.id}`)}</div>
+          </div>
+        </div>
         <button class="btn btn-primary small" onclick="renameBrand('${brand.id}')">수정</button>
       </div>
     </div>
   `).join('');
+
+  localState.brands.forEach((brand) => {
+    updateBrandColorToggleButton(normalizeBrandColorKey(brand.colorKey || 'ocean'), `brand-color-toggle-${brand.id}`, true);
+    applyBrandEditInputColor(brand.id, normalizeBrandColorKey(brand.colorKey || 'ocean'));
+  });
+  updateBrandEditToggleButton();
 }
 
 function addBrand() {
   const input = document.getElementById('brandNameInput');
-  const colorSelect = document.getElementById('brandColorInput');
+  const backupInput = document.getElementById('brandBackupInput');
+  const colorInput = document.getElementById('brandColorInput');
   const name = input ? input.value.trim() : '';
-  const colorKey = colorSelect ? colorSelect.value : 'ocean';
+  const backupLocation = backupInput ? backupInput.value.trim() : '';
+  const colorKey = colorInput ? colorInput.value : 'ocean';
   if (!name) {
     alert('브랜드명을 입력하세요.');
     return;
@@ -1102,25 +1190,32 @@ function addBrand() {
   }
   db.collection(COLLECTIONS.brands).add({
     name,
+    backupLocation,
     colorKey: normalizeBrandColorKey(colorKey),
     createdAt: firebase.firestore.FieldValue.serverTimestamp()
   }).then(() => {
     if (input) input.value = '';
-    if (colorSelect) colorSelect.value = 'ocean';
+    if (backupInput) backupInput.value = '';
+    if (colorInput) colorInput.value = 'ocean';
+    setBrandColorSelection('brandColorInput', 'brandColorPicker', 'ocean');
   });
 }
 
 function renameBrand(brandId) {
+  if (!localState.brandEditMode) return;
   const input = document.getElementById(`brand-name-${brandId}`);
-  const colorSelect = document.getElementById(`brand-color-${brandId}`);
+  const backupInput = document.getElementById(`brand-backup-${brandId}`);
+  const colorInput = document.getElementById(`brand-color-value-${brandId}`);
   const next = input ? input.value.trim() : '';
-  const colorKey = colorSelect ? colorSelect.value : 'ocean';
+  const backupLocation = backupInput ? backupInput.value.trim() : '';
+  const colorKey = colorInput ? colorInput.value : 'ocean';
   if (!next) {
     alert('브랜드명을 입력하세요.');
     return;
   }
   db.collection(COLLECTIONS.brands).doc(brandId).update({
     name: next,
+    backupLocation,
     colorKey: normalizeBrandColorKey(colorKey),
     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
   }).then(() => {
@@ -1133,6 +1228,18 @@ function renameBrand(brandId) {
       }));
     return Promise.all(jobs);
   });
+}
+
+function toggleBrandEditMode(forceMode) {
+  const next = typeof forceMode === 'boolean' ? forceMode : !localState.brandEditMode;
+  localState.brandEditMode = !!next;
+  renderBrandManageList();
+}
+
+function updateBrandEditToggleButton() {
+  const btn = document.getElementById('brandEditToggleBtn');
+  if (!btn) return;
+  btn.textContent = localState.brandEditMode ? '수정 닫기' : '수정하기';
 }
 
 function openGymMoodModal() {
@@ -1250,9 +1357,128 @@ function crackFortuneCookie(type) {
   launchFortuneCelebration(selectedType);
 }
 
+function setRefreshMode(mode) {
+  const selectedMode = REFRESH_MODES.includes(mode) ? mode : 'fortune';
+  const fortunePanel = document.getElementById('refreshFortunePanel');
+  const lottoPanel = document.getElementById('refreshLottoPanel');
+  const fortuneBtn = document.getElementById('refreshModeFortuneBtn');
+  const lottoBtn = document.getElementById('refreshModeLottoBtn');
+  const isFortune = selectedMode === 'fortune';
+
+  if (fortunePanel) fortunePanel.classList.toggle('hidden', !isFortune);
+  if (lottoPanel) lottoPanel.classList.toggle('hidden', isFortune);
+  if (fortuneBtn) fortuneBtn.classList.toggle('active', isFortune);
+  if (lottoBtn) lottoBtn.classList.toggle('active', !isFortune);
+}
+
+function openRefreshMiniGame() {
+  window.open('https://duding3.github.io/d_ding/', '_blank', 'noopener,noreferrer');
+}
+
+function drawRefreshLotto() {
+  const drawBtn = document.getElementById('lottoDrawBtn');
+  if (drawBtn && drawBtn.disabled) return;
+  if (drawBtn) drawBtn.disabled = true;
+  const drawToken = ++refreshLottoDrawToken;
+
+  startLottoRollingAnimation();
+  const resultEl = document.getElementById('lottoResultText');
+  const linesEl = document.getElementById('lottoLines');
+
+  if (resultEl) {
+    resultEl.textContent = '공이 굴러가는 중...';
+    resultEl.classList.remove('show');
+    void resultEl.offsetWidth;
+    resultEl.classList.add('show');
+  }
+
+  setTimeout(() => {
+    if (drawToken !== refreshLottoDrawToken) return;
+    const lines = Array.from({ length: LOTTO_LINE_COUNT }, () => pickLottoLineNumbers());
+    if (linesEl) {
+      linesEl.innerHTML = lines.map((line, idx) => createLottoLineHtml(line, idx)).join('');
+    }
+    stopLottoRollingAnimation();
+    if (resultEl) {
+      resultEl.textContent = '추천 5줄 생성 완료';
+      resultEl.classList.remove('show');
+      void resultEl.offsetWidth;
+      resultEl.classList.add('show');
+    }
+    if (drawBtn) drawBtn.disabled = false;
+  }, LOTTO_DRAW_DELAY_MS);
+}
+
 function pickRandomFortuneType() {
   const keys = Object.keys(FORTUNE_BY_TYPE);
   return keys[Math.floor(Math.random() * keys.length)];
+}
+
+function createLottoBallHtml(number, idx) {
+  const n = Number(number);
+  const toneClass = getLottoToneClass(n);
+  const delay = (Number(idx || 0) * 0.06).toFixed(2);
+  return `<span class="lotto-ball ${toneClass}" style="--lotto-delay:${delay}s">${n}</span>`;
+}
+
+function getLottoToneClass(number) {
+  const n = Number(number);
+  if (n <= 10) return 'tone-1';
+  if (n <= 20) return 'tone-2';
+  if (n <= 30) return 'tone-3';
+  if (n <= 40) return 'tone-4';
+  return 'tone-5';
+}
+
+function pickLottoLineNumbers() {
+  const pool = Array.from({ length: LOTTO_MAX_NUMBER }, (_, idx) => idx + 1);
+  const picked = [];
+  while (picked.length < LOTTO_PICK_COUNT && pool.length) {
+    const idx = Math.floor(Math.random() * pool.length);
+    picked.push(pool.splice(idx, 1)[0]);
+  }
+  picked.sort((a, b) => a - b);
+  const bonus = pool[Math.floor(Math.random() * pool.length)];
+  return { numbers: picked, bonus };
+}
+
+function createLottoLineHtml(line, lineIdx) {
+  const lineLabel = String.fromCharCode(65 + Number(lineIdx || 0));
+  const numbers = Array.isArray(line && line.numbers) ? line.numbers : [];
+  const bonus = Number(line && line.bonus);
+  const balls = numbers
+    .map((num, idx) => createLottoBallHtml(num, (lineIdx * LOTTO_PICK_COUNT) + idx))
+    .join('');
+  const bonusBall = Number.isFinite(bonus)
+    ? createLottoBallHtml(bonus, (lineIdx * LOTTO_PICK_COUNT) + LOTTO_PICK_COUNT)
+    : '<span class="lotto-ball empty">?</span>';
+  return `<div class="lotto-line"><span class="lotto-line-label">${lineLabel}</span><div class="lotto-line-balls"><div class="lotto-main-balls">${balls}</div><span class="lotto-plus-mini">+</span><div class="lotto-bonus-ball">${bonusBall}</div></div></div>`;
+}
+
+function createEmptyLottoLineHtml(lineIdx) {
+  const lineLabel = String.fromCharCode(65 + Number(lineIdx || 0));
+  return `<div class="lotto-line"><span class="lotto-line-label">${lineLabel}</span><div class="lotto-line-balls"><div class="lotto-main-balls"><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span></div><span class="lotto-plus-mini">+</span><div class="lotto-bonus-ball"><span class="lotto-ball empty">?</span></div></div></div>`;
+}
+
+function startLottoRollingAnimation() {
+  const stage = document.getElementById('lottoRollingStage');
+  if (!stage) return;
+  const rollingBalls = Array.from({ length: 12 }, (_, idx) => {
+    const number = 1 + Math.floor(Math.random() * LOTTO_MAX_NUMBER);
+    const dx = Math.round(Math.random() * 120) + 24;
+    const dy = Math.round(Math.random() * 30) + 10;
+    const delay = (idx * 0.05).toFixed(2);
+    return `<span class="rolling-ball ${getLottoToneClass(number)}" style="--rbx:${dx}px;--rby:${dy}px;--rdelay:${delay}s">${number}</span>`;
+  }).join('');
+  stage.classList.add('running');
+  stage.innerHTML = rollingBalls;
+}
+
+function stopLottoRollingAnimation() {
+  const stage = document.getElementById('lottoRollingStage');
+  if (!stage) return;
+  stage.classList.remove('running');
+  stage.innerHTML = '<div class="lotto-rolling-hint">추첨 완료</div>';
 }
 
 function launchFortuneCelebration(type) {
@@ -1293,10 +1519,15 @@ function launchFortuneCelebration(type) {
 }
 
 function resetRefreshModal() {
+  refreshLottoDrawToken += 1;
   const cookie = document.getElementById('fortuneCookie');
   const result = document.getElementById('fortuneResult');
   const wrap = document.querySelector('#refreshModal .fortune-wrap');
   const layer = document.getElementById('fortuneConfettiLayer');
+  const lottoLines = document.getElementById('lottoLines');
+  const lottoDrawBtn = document.getElementById('lottoDrawBtn');
+  const rollingStage = document.getElementById('lottoRollingStage');
+  const lottoResult = document.getElementById('lottoResultText');
   if (cookie) {
     cookie.textContent = '🥠';
     cookie.classList.remove('crack');
@@ -1307,6 +1538,19 @@ function resetRefreshModal() {
   }
   if (wrap) wrap.classList.remove('fortune-celebrate');
   if (layer) layer.innerHTML = '';
+  if (rollingStage) {
+    rollingStage.classList.remove('running');
+    rollingStage.innerHTML = '<div class="lotto-rolling-hint">추첨기 가동 준비</div>';
+  }
+  if (lottoLines) {
+    lottoLines.innerHTML = Array.from({ length: LOTTO_LINE_COUNT }, (_, idx) => createEmptyLottoLineHtml(idx)).join('');
+  }
+  if (lottoResult) {
+    lottoResult.textContent = '번호 5줄 뽑기를 눌러주세요.';
+    lottoResult.classList.remove('show');
+  }
+  if (lottoDrawBtn) lottoDrawBtn.disabled = false;
+  setRefreshMode('fortune');
 }
 
 function ensureGymMoodMonthRows(month) {
@@ -1403,6 +1647,12 @@ function saveTask(taskId) {
     alert('작업명 또는 담당자를 확인하세요.');
     return;
   }
+  const currentTask = localState.tasks.find((task) => task.id === taskId);
+  const prevStatus = normalizeStatus(currentTask ? currentTask.status : '');
+  const nextStatus = normalizeStatus(status);
+  const nextSortOrder = prevStatus !== nextStatus
+    ? getNextTaskSortOrder(nextStatus)
+    : (Number.isFinite(Number(currentTask && currentTask.sortOrder)) ? Number(currentTask.sortOrder) : getNextTaskSortOrder(nextStatus));
 
   db.collection(COLLECTIONS.tasks).doc(taskId).update({
     name,
@@ -1410,7 +1660,8 @@ function saveTask(taskId) {
     userNames: user ? [user.name] : [],
     userId,
     userName: user.name,
-    status: normalizeStatus(status),
+    status: nextStatus,
+    sortOrder: nextSortOrder,
     date,
     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
   });
@@ -1465,6 +1716,12 @@ function saveTaskFromBoard() {
     alert('작업명 또는 브랜드를 확인하세요.');
     return;
   }
+  const currentTask = localState.tasks.find((task) => task.id === localState.editingTaskId);
+  const prevStatus = normalizeStatus(currentTask ? currentTask.status : '');
+  const nextStatus = normalizeStatus(status);
+  const nextSortOrder = prevStatus !== nextStatus
+    ? getNextTaskSortOrder(nextStatus)
+    : (Number.isFinite(Number(currentTask && currentTask.sortOrder)) ? Number(currentTask.sortOrder) : getNextTaskSortOrder(nextStatus));
 
   db.collection(COLLECTIONS.tasks).doc(localState.editingTaskId).update({
     name,
@@ -1477,7 +1734,8 @@ function saveTaskFromBoard() {
     brandId: brand.id,
     brandName: brand.name,
     brandColorKey: normalizeBrandColorKey(brand.colorKey),
-    status: normalizeStatus(status),
+    status: nextStatus,
+    sortOrder: nextSortOrder,
     date,
     updatedAt: firebase.firestore.FieldValue.serverTimestamp()
   }).then(() => {
@@ -1539,8 +1797,8 @@ function updateAuthUI() {
 
 function toggleThemeMode() {
   localState.themeMode = localState.themeMode === 'dark' ? 'light' : 'dark';
-  applyThemeMode();
   persistThemeMode();
+  window.location.reload();
 }
 
 function applyThemeMode() {
@@ -1565,6 +1823,12 @@ function openModal(id) {
       if (nameEl) nameEl.focus();
     }, 0);
   }
+  if (id === 'refreshModal') {
+    setRefreshMode('fortune');
+  }
+  if (id === 'brandListModal') {
+    toggleBrandEditMode(false);
+  }
 }
 
 function closeModal(id) {
@@ -1572,6 +1836,11 @@ function closeModal(id) {
   if (el) el.style.display = 'none';
   if (id === 'taskEditModal') localState.editingTaskId = null;
   if (id === 'refreshModal') resetRefreshModal();
+  if (id === 'brandListModal') {
+    localState.brandEditMode = false;
+    updateBrandEditToggleButton();
+    document.querySelectorAll('.brand-color-popover').forEach((wrap) => wrap.classList.add('hidden'));
+  }
 }
 
 function closeOnBackdrop(event, modalId) {
@@ -2030,6 +2299,98 @@ function normalizeBrandColorKey(key) {
   return found ? found.key : BRAND_COLOR_PRESETS[0].key;
 }
 
+function getBrandColorPickerHtml(selectedKey, inputId, pickerId) {
+  const selected = normalizeBrandColorKey(selectedKey);
+  return BRAND_COLOR_PRESETS.map((item) => {
+    const activeClass = item.key === selected ? ' active' : '';
+    const color = escapeAttr(item.light || '#2f63c8');
+    const label = escapeAttr(item.label || item.key);
+    return `<button type="button" class="brand-color-chip${activeClass}" data-key="${escapeAttr(item.key)}" style="--chip-color:${color};" aria-label="${label}" title="${label}" onclick="setBrandColorSelection('${escapeAttr(inputId)}','${escapeAttr(pickerId)}','${escapeAttr(item.key)}')"></button>`;
+  }).join('');
+}
+
+function setBrandColorSelection(inputId, pickerId, key) {
+  const normalized = normalizeBrandColorKey(key);
+  const input = document.getElementById(inputId);
+  const picker = document.getElementById(pickerId);
+  if (input) input.value = normalized;
+  if (picker) {
+    picker.querySelectorAll('.brand-color-chip').forEach((chip) => {
+      const chipKey = chip.getAttribute('data-key') || '';
+      chip.classList.toggle('active', chipKey === normalized);
+    });
+  }
+  if (inputId === 'brandColorInput') {
+    applyBrandNameColorPreview(normalized);
+    updateBrandColorToggleButton(normalized, 'brandColorToggleBtn', false);
+    toggleBrandColorPicker('brandColorPickerWrap', true);
+    return;
+  }
+  const brandId = String(inputId || '').startsWith('brand-color-value-')
+    ? String(inputId).replace('brand-color-value-', '')
+    : '';
+  if (brandId) {
+    updateBrandColorToggleButton(normalized, `brand-color-toggle-${brandId}`, true);
+    applyBrandEditInputColor(brandId, normalized);
+    toggleBrandColorPicker(`brand-color-wrap-${brandId}`, true);
+  }
+}
+
+function applyBrandNameColorPreview(colorKey) {
+  const input = document.getElementById('brandNameInput');
+  if (!input) return;
+  const color = getBrandTextColorByMode(colorKey);
+  input.style.color = color;
+  input.style.caretColor = color;
+}
+
+function updateBrandColorToggleButton(colorKey, buttonId, showLabel) {
+  const btn = document.getElementById(buttonId || 'brandColorToggleBtn');
+  const preset = BRAND_COLOR_PRESETS.find((item) => item.key === normalizeBrandColorKey(colorKey)) || BRAND_COLOR_PRESETS[0];
+  if (!btn || !preset) return;
+  const title = showLabel ? `선택: ${escapeHtml(preset.label)}` : '색상 선택';
+  btn.innerHTML = `<span class="brand-color-toggle-chip" style="--chip-color:${escapeAttr(preset.light)};"></span><span>${title}</span>`;
+}
+
+function applyBrandEditInputColor(brandId, colorKey) {
+  const input = document.getElementById(`brand-name-${brandId}`);
+  if (!input) return;
+  const color = getBrandTextColorByMode(colorKey);
+  input.style.color = color;
+  input.style.caretColor = color;
+}
+
+function toggleBrandColorPicker(wrapId, forceClose) {
+  const wrap = document.getElementById(wrapId || 'brandColorPickerWrap');
+  if (!wrap) return;
+  if (forceClose === true) {
+    wrap.classList.add('hidden');
+    return;
+  }
+  wrap.classList.toggle('hidden');
+}
+
+function initBrandColorPickerPopover() {
+  if (window.__brandColorPickerPopoverInited) return;
+  window.__brandColorPickerPopoverInited = true;
+  document.addEventListener('click', (event) => {
+    const target = event && event.target ? event.target : null;
+    if (!target) return;
+    document.querySelectorAll('.brand-color-popover').forEach((wrap) => {
+      const pop = wrap.closest('.brand-color-pop');
+      if (!pop) return;
+      if (pop.contains(target)) return;
+      wrap.classList.add('hidden');
+    });
+  });
+}
+
+function getBrandColorLabel(colorKey) {
+  const key = normalizeBrandColorKey(colorKey);
+  const preset = BRAND_COLOR_PRESETS.find((item) => item.key === key) || BRAND_COLOR_PRESETS[0];
+  return preset.label || key;
+}
+
 function getBrandColorOptionsHtml(selectedKey) {
   const selected = normalizeBrandColorKey(selectedKey);
   return BRAND_COLOR_PRESETS
@@ -2079,6 +2440,7 @@ if (regNameEl) {
 }
 updateSignupAvatarPreview();
 initSlashEmojiPicker();
+initBrandColorPickerPopover();
 
 const loginPwEl = document.getElementById('loginPw');
 if (loginPwEl) {
@@ -2310,8 +2672,14 @@ function insertEmoji(targetId, emoji) {
   el.focus();
 }
 
-const SLASH_EMOJI_TOKEN = '/이모지';
-const SLASH_EMOJIS = ['😳', '🥹', '🙈', '🙂', '😊', '😂', '😍', '😎', '🤔', '✅', '📌', '📅', '📝', '📎', '📊', '💼', '🔥', '🎉', '✨', '🧸', '🐰'];
+const SLASH_EMOJI_TOKEN = '/@';
+const SLASH_EMOJIS = [
+  '😀', '😁', '😆', '🤣', '😂', '🙂', '😊', '😍', '🥰', '😘', '😎', '🤩',
+  '😳', '🥹', '🙈', '🤔', '🫡', '😴', '😵‍💫', '🤯', '😡', '😭', '🥲', '🙏',
+  '👍', '👀', '👏', '🙌', '💪', '🤝', '🧠', '🔥', '✨', '💥', '🎉', '🎯',
+  '✅', '❗', '⚠️', '📌', '📅', '📝', '📎', '📊', '📣', '💡', '💼', '📦',
+  '🧸', '🐰', '🐶', '🐱', '🍀', '🌈', '☕', '🍪', '🍕', '🌙', '⭐'
+];
 const slashEmojiState = {
   el: null,
   tokenStart: -1,
