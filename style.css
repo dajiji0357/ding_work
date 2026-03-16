@@ -595,6 +595,9 @@ body.dark-mode input[type='month']::-webkit-calendar-picker-indicator {
   width: 58px;
   height: 58px;
   animation: memo-walker-move 14s ease-in-out infinite alternate, memo-walker-bob 0.52s ease-in-out infinite;
+  pointer-events: auto;
+  cursor: pointer;
+  transform-origin: center bottom;
 }
 
 .memo-walker-img {
@@ -603,6 +606,25 @@ body.dark-mode input[type='month']::-webkit-calendar-picker-indicator {
   object-fit: contain;
   filter: drop-shadow(0 5px 6px rgba(18, 22, 32, 0.22));
   animation: memo-walker-flip 28s linear infinite;
+}
+
+.memo-mustard-burst {
+  position: absolute;
+  left: 34px;
+  bottom: 32px;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+.memo-walker-squirt {
+  position: absolute;
+  width: 9px;
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #ffe36e, #f2b700);
+  opacity: 0;
+  transform: translate(0, 0) scale(0.4) rotate(var(--rot, 0deg));
 }
 
 .memo-walker-bubble {
@@ -663,6 +685,26 @@ body.dark-mode .memo-walker-bubble::before {
   background: rgba(30, 43, 67, 0.96);
 }
 
+.memo-walker.caught {
+  animation-play-state: paused;
+}
+
+.memo-walker.caught .memo-walker-img {
+  animation-play-state: paused;
+}
+
+.memo-walker.caught .memo-walker-bubble {
+  opacity: 0;
+}
+
+.memo-walker.is-startled .memo-walker-img {
+  animation: memo-walker-startle 0.5s ease;
+}
+
+.memo-walker.is-squirting .memo-walker-squirt {
+  animation: memo-mustard-squirt 0.58s ease-out forwards;
+}
+
 @keyframes memo-walker-move {
   0% { left: 0; }
   100% { left: calc(100% - 58px); }
@@ -677,6 +719,28 @@ body.dark-mode .memo-walker-bubble::before {
 @keyframes memo-walker-flip {
   0%, 49.999% { transform: scaleX(1); }
   50%, 100% { transform: scaleX(-1); }
+}
+
+@keyframes memo-walker-startle {
+  0% { transform: translateY(0) scale(1) rotate(0deg); }
+  20% { transform: translateY(-6px) scale(1.08) rotate(-8deg); }
+  46% { transform: translateY(-2px) scale(0.97) rotate(7deg); }
+  74% { transform: translateY(-5px) scale(1.05) rotate(-5deg); }
+  100% { transform: translateY(0) scale(1) rotate(0deg); }
+}
+
+@keyframes memo-mustard-squirt {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0) scale(0.35) rotate(var(--rot, 0deg));
+  }
+  10% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--dx, 30px), var(--dy, -18px)) scale(0.95) rotate(var(--rot, 0deg));
+  }
 }
 
 .section-head {

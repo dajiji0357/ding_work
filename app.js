@@ -102,6 +102,7 @@ const localState = {
   themeMode: 'light',
   brandEditMode: false
 };
+let memoWalkerResumeTimer = null;
 
 hydrateAuthFromStorage();
 hydrateThemeMode();
@@ -2441,6 +2442,7 @@ if (regNameEl) {
 updateSignupAvatarPreview();
 initSlashEmojiPicker();
 initBrandColorPickerPopover();
+initMemoWalkerGame();
 
 const loginPwEl = document.getElementById('loginPw');
 if (loginPwEl) {
@@ -2713,6 +2715,57 @@ function initSlashEmojiPicker() {
     if (pickerEl.contains(target)) return;
     hideSlashEmojiPicker();
   });
+}
+
+function initMemoWalkerGame() {
+  const walker = document.querySelector('.memo-walker');
+  const bubble = document.querySelector('.memo-walker-bubble');
+  const burst = document.querySelector('.memo-mustard-burst');
+  if (!walker || !burst) return;
+
+  walker.addEventListener('click', () => {
+    if (walker.classList.contains('caught')) return;
+
+    walker.classList.add('caught');
+    walker.classList.add('is-startled');
+    walker.classList.add('is-squirting');
+    if (bubble) bubble.textContent = '앗! 머스터드 발사!';
+    createMemoMustardBurst(burst);
+
+    setTimeout(() => {
+      walker.classList.remove('is-startled');
+      walker.classList.remove('is-squirting');
+    }, 620);
+
+    if (memoWalkerResumeTimer) {
+      clearTimeout(memoWalkerResumeTimer);
+    }
+    memoWalkerResumeTimer = setTimeout(() => {
+      walker.classList.remove('caught');
+      if (bubble) bubble.textContent = '오늘은 무슨일로 오셨나요?';
+    }, 1800);
+  });
+}
+
+function createMemoMustardBurst(container) {
+  if (!container) return;
+  container.innerHTML = '';
+
+  for (let i = 0; i < 12; i += 1) {
+    const particle = document.createElement('span');
+    particle.className = 'memo-walker-squirt';
+    const angle = -50 + (Math.random() * 42);
+    const distance = 20 + (Math.random() * 46);
+    const dx = Math.cos((angle * Math.PI) / 180) * distance;
+    const dy = Math.sin((angle * Math.PI) / 180) * distance;
+    const rot = -18 + (Math.random() * 36);
+    const delay = Math.round(Math.random() * 140);
+    particle.style.setProperty('--dx', `${dx.toFixed(1)}px`);
+    particle.style.setProperty('--dy', `${dy.toFixed(1)}px`);
+    particle.style.setProperty('--rot', `${rot.toFixed(1)}deg`);
+    particle.style.animationDelay = `${delay}ms`;
+    container.appendChild(particle);
+  }
 }
 
 function handleSlashEmojiTrigger(input) {
