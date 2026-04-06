@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>피그마 백업 경로</title>
+  <style>
+    :root {
+      --bg-a: #f3f8ff;
+      --bg-b: #eefaf5;
+      --ink: #23314f;
+      --muted: #5d6b87;
+      --line: rgba(107, 129, 171, 0.28);
+      --card: rgba(255, 255, 255, 0.9);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Pretendard", "SUIT", sans-serif;
+      color: var(--ink);
+      background: linear-gradient(140deg, var(--bg-a), var(--bg-b));
+      min-height: 100vh;
+      padding: 16px;
+    }
+    .wrap {
+      width: min(980px, 100%);
+      margin: 0 auto;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: var(--card);
+      box-shadow: 0 18px 36px rgba(34, 57, 95, 0.12);
+      padding: 14px;
+    }
+    .head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    h1 { margin: 0; font-size: 1.15rem; }
+    .hint {
+      margin: 6px 0 10px;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+    .actions, .mode-tabs, .editor-tools, .editor-subtools {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .mode-tabs { margin: 8px 0 10px; }
+    .editor-tools, .editor-subtools { margin-bottom: 8px; }
+    .btn {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 9px 12px;
+      font-weight: 700;
+      cursor: pointer;
+      background: #fff;
+      color: var(--ink);
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #198cd8, #0e6db0);
+      border-color: transparent;
+      color: #fff;
+    }
+    .btn-tab {
+      background: rgba(255,255,255,0.84);
+      color: #34507d;
+    }
+    .btn-tab.active {
+      background: linear-gradient(135deg, #18a0fb, #0f78c4);
+      color: #fff;
+      border-color: transparent;
+      box-shadow: 0 8px 16px rgba(15,120,196,0.24);
+    }
+    .tool-label {
+      font-size: 0.86rem;
+      color: var(--muted);
+      font-weight: 700;
+      margin-right: 2px;
+    }
+    .icon-btn, .emoji-toggle-btn, .palette-btn {
+      min-width: 34px;
+      height: 34px;
+      padding: 0 8px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 0.9rem;
+      line-height: 1;
+    }
+    .emoji-toggle-btn { min-width: 40px; font-size: 1rem; }
+    .active-format {
+      background: linear-gradient(135deg, #2f67c8, #184892);
+      color: #fff;
+      border-color: transparent;
+    }
+    .emoji-wrap, .palette-wrap { position: relative; }
+    .emoji-panel {
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 0;
+      z-index: 20;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(255,255,255,0.97);
+      padding: 8px;
+      width: min(460px, 88vw);
+      box-shadow: 0 10px 22px rgba(26,42,74,0.16);
+    }
+    .emoji-row {
+      display: grid;
+      grid-template-columns: repeat(10, minmax(0,1fr));
+      gap: 4px;
+    }
+    .emoji-btn {
+      min-width: 30px;
+      padding: 6px 8px;
+      line-height: 1;
+    }
+    .size-select {
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      padding: 8px 10px;
+      font: inherit;
+      background: #fff;
+      color: var(--ink);
+    }
+    .color-presets {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .color-chip {
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      border: 1px solid rgba(34,49,79,0.25);
+      cursor: pointer;
+      padding: 0;
+    }
+    .color-picker-pop {
+      position: absolute;
+      top: calc(100% + 6px);
+      left: 0;
+      z-index: 20;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: rgba(255,255,255,0.98);
+      padding: 8px;
+      box-shadow: 0 10px 22px rgba(26,42,74,0.16);
+    }
+    .color-picker-pop input[type='color'] {
+      width: 42px;
+      height: 42px;
+      border: 0;
+      background: transparent;
+      padding: 0;
+      cursor: pointer;
+    }
+    .editor {
+      width: 100%;
+      min-height: 68vh;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      font: inherit;
+      line-height: 1.45;
+      color: var(--ink);
+      background: rgba(255,255,255,0.95);
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+    .editor[contenteditable='false'] {
+      background: rgba(244,248,255,0.75);
+    }
+    .editor:empty::before {
+      content: attr(data-placeholder);
+      color: #92a0bb;
+      pointer-events: none;
+      white-space: pre-line;
+    }
+    .status {
+      margin-top: 8px;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+    .hidden { display: none !important; }
+    @media (max-width: 700px) {
+      .editor { min-height: 58vh; }
+      .emoji-row { grid-template-columns: repeat(8, minmax(0,1fr)); }
+    }
+  </style>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <div class="head">
+      <h1>피그마 백업 경로</h1>
+      <div class="actions">
+        <button id="editBtn" class="btn" type="button" onclick="enableEditMode()">메모수정</button>
+        <button class="btn btn-primary" type="button" onclick="saveFigmaList()">메모저장</button>
+      </div>
+    </div>
+    <p class="hint">브랜드별 피그마 경로를 공유하고 관리하는 메모 공간입니다.</p>
+
+    <div class="mode-tabs">
+      <button id="tabShared" class="btn btn-tab active" type="button" onclick="switchMode('shared')">피그마 경로 공유</button>
+      <button id="tabBrand" class="btn btn-tab" type="button" onclick="switchMode('brand')">피그마 브랜드 경로</button>
+    </div>
+
+    <div class="editor-tools">
+      <span class="tool-label">텍스트 수정</span>
+      <button id="boldBtn" class="btn icon-btn" type="button" onclick="toggleBold()" title="굵게">B</button>
+      <button id="italicBtn" class="btn icon-btn" type="button" onclick="toggleItalic()" title="기울이기">/</button>
+      <div class="emoji-wrap">
+        <button id="emojiToggleBtn" class="btn emoji-toggle-btn" type="button" onclick="toggleEmojiPanel()">😊</button>
+        <div id="emojiPanel" class="emoji-panel hidden">
+          <div class="emoji-row">
+            <button class="btn emoji-btn" type="button" onclick="insertEmoji('😀')">😀</button>
+            <button class="btn emoji-btn" type="button" onclick="insertEmoji('😁')">😁</button>
+            <button class="btn emoji-btn" type="button" onclick="insertEmoji('😄')">😄</button>
+            <button class="btn emoji-btn" type="button" onclick="insertEmoji('😆')">😆</button>
+            <button class="btn emoji-btn" type="button" onclick="insertEmoji('😊')">😊</button>
+            <button class="btn emoji-btn" type="button" onclick="insertEmoji('😉')">😉</button>
+            <button class="btn emoji-btn" type="button" onclick="insertEmoji('😍')">😍</button>
+            <button class="btn emoji-btn" type="button" onclick="insertEmoji('🥰')">🥰</button>
+            <button class="btn emoji-btn" type="button" onclick="insertEmoji('😘')">😘</button>
+            <button class="btn emoji-btn" type="button" onclick="insertEmoji('😎')">😎</button>
+            <button class="btn emoji-btn" type="button" onclick="insertEmoji('🤩')">🤩</button>
+            <button class="btn emoji-btn" type="button" onclick="insertEmoji('🙂')">🙂</button>
+            <button class="btn emoji-btn" type="button" onclick="insertEmoji('🙃')">🙃</button>
+            <button class="btn emoji-btn" type="button" onclick="insertEmoji('🥹')">🥹</button>
+            <button class="btn emoji-btn" type="button" onclick="insertEmoji('🤗')">🤗</button>
+            <button class="btn emoji-btn" type="button" onclick="insertEmoji('🤔')">🤔</button>
+            <button class="btn emoji-btn" type="button" onclick="insertEmoji('😋')">😋</button>
+            <button class="btn emoji-btn" type="button" onclick="insertEmoji('😜')">😜</button>
+            <button class="btn emoji-btn" type="button" onclick="insertEmoji('😇')">😇</button>
+            <button class="btn emoji-btn" type="button" onclick="insertEmoji('🥳')">🥳</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="editor-subtools">
+      <label for="fontSizeSelect">글씨크기</label>
+      <select id="fontSizeSelect" class="size-select" onchange="applySelectedFontSize(this.value)">
+        <option value="13">작게 (13px)</option>
+        <option value="15" selected>보통 (15px)</option>
+        <option value="17">중간 (17px)</option>
+        <option value="20">크게 (20px)</option>
+        <option value="24">아주 크게 (24px)</option>
+      </select>
+      <div class="color-presets">
+        <span>색상</span>
+        <button class="color-chip" type="button" style="background:#d23b3b;" onclick="applyTextColor('#d23b3b')" title="빨간색"></button>
+        <button class="color-chip" type="button" style="background:#2f67c8;" onclick="applyTextColor('#2f67c8')" title="파란색"></button>
+        <button class="color-chip" type="button" style="background:#1b8f5d;" onclick="applyTextColor('#1b8f5d')" title="초록색"></button>
+        <button class="color-chip" type="button" style="background:#8052c7;" onclick="applyTextColor('#8052c7')" title="보라색"></button>
+        <button class="color-chip" type="button" style="background:#cf8d1a;" onclick="applyTextColor('#cf8d1a')" title="주황색"></button>
+        <button class="color-chip" type="button" style="background:#2f2f2f;" onclick="applyTextColor('#2f2f2f')" title="검정색"></button>
+      </div>
+      <div class="palette-wrap">
+        <button id="paletteToggleBtn" class="btn palette-btn" type="button" onclick="openPalettePicker()" title="심화색상">🎨</button>
+        <input id="textColorPicker" class="hidden" type="color" value="#1f4b99" onchange="applyTextColor(this.value)">
+      </div>
+    </div>
+
+    <div id="figmaEditor" class="editor" contenteditable="false" data-placeholder="예) 브랜드A - 메인시안 / 상세페이지&#10;예) 브랜드B - 썸네일 템플릿"></div>
+    <div id="saveStatus" class="status">서버 연결 중...</div>
+  </div>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: 'AIzaSyDl71Ezdl85KnoEuBpBaz1pVfC2K3yR0QQ',
+      authDomain: 'myworkboard-981bf.firebaseapp.com',
+      projectId: 'myworkboard-981bf',
+      storageBucket: 'myworkboard-981bf.firebasestorage.app',
+      messagingSenderId: '840533947338',
+      appId: '1:840533947338:web:74fc5506b12b39f9279533'
+    };
+    if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+    const auth = firebase.auth();
+
+    const editor = document.getElementById('figmaEditor');
+    const saveStatus = document.getElementById('saveStatus');
+    const boldBtn = document.getElementById('boldBtn');
+    const italicBtn = document.getElementById('italicBtn');
+    const emojiToggleBtn = document.getElementById('emojiToggleBtn');
+    const emojiPanel = document.getElementById('emojiPanel');
+    const textColorPicker = document.getElementById('textColorPicker');
+    let isEditMode = false;
+    let activeMode = 'shared';
+    let savedSelectionRange = null;
+    const memoState = { shared: '', brand: '' };
+
+    auth.signInAnonymously()
+      .then(() => { saveStatus.textContent = '연결 완료 (메모수정을 누르면 편집됩니다)'; })
+      .catch((err) => {
+        console.error(err);
+        saveStatus.textContent = '연결 실패: 새로고침 후 다시 시도하세요.';
+      });
+
+    db.collection('work_manager_config').doc('figmaLinks').onSnapshot((doc) => {
+      const data = doc.exists ? (doc.data() || {}) : {};
+      memoState.shared = normalizeStoredContent(data.sharedRichContent || data.sharedContent || '');
+      memoState.brand = normalizeStoredContent(data.brandRichContent || data.brandContent || '');
+      if (document.activeElement !== editor || !isEditMode) {
+        setEditorContent(memoState[activeMode] || '');
+      }
+    });
+
+    function saveFigmaList() {
+      const richContent = getEditorContent();
+      const plainContent = getEditorText();
+      memoState[activeMode] = richContent;
+      const payload = activeMode === 'brand'
+        ? { brandContent: plainContent, brandRichContent: richContent }
+        : { sharedContent: plainContent, sharedRichContent: richContent };
+      db.collection('work_manager_config').doc('figmaLinks').set(payload, { merge: true })
+        .then(() => {
+          saveStatus.textContent = `${activeMode === 'brand' ? '피그마 브랜드 경로' : '피그마 경로 공유'} 저장 완료`;
+          setEditMode(false);
+        })
+        .catch((err) => {
+          console.error(err);
+          saveStatus.textContent = '저장 실패: 잠시 후 다시 시도하세요.';
+        });
+    }
+
+    function switchMode(mode) {
+      const next = mode === 'brand' ? 'brand' : 'shared';
+      activeMode = next;
+      document.getElementById('tabShared').classList.toggle('active', next === 'shared');
+      document.getElementById('tabBrand').classList.toggle('active', next === 'brand');
+      setEditorContent(memoState[next] || '');
+      editor.dataset.placeholder = next === 'brand'
+        ? '예) 브랜드A - https://... / 메인 보드\n예) 브랜드B - https://... / 상세 운영 보드'
+        : '예) 공용 시안 - https://...\n예) 수정 요청 링크 - https://...';
+      saveStatus.textContent = next === 'brand' ? '피그마 브랜드 경로 편집 중' : '피그마 경로 공유 편집 중';
+    }
+
+    function setEditMode(enabled) {
+      isEditMode = !!enabled;
+      editor.setAttribute('contenteditable', isEditMode ? 'true' : 'false');
+      document.getElementById('editBtn').textContent = isEditMode ? '수정중' : '메모수정';
+      if (isEditMode) {
+        editor.focus();
+        placeCaretAtEnd(editor);
+      }
+    }
+
+    function enableEditMode() {
+      setEditMode(true);
+      saveStatus.textContent = '수정모드: 내용을 변경한 뒤 메모저장을 눌러주세요.';
+    }
+
+    function ensureEditMode() {
+      if (isEditMode) return true;
+      saveStatus.textContent = '메모수정을 눌러 편집모드로 바꿔주세요.';
+      return false;
+    }
+
+    function saveSelectionRange() {
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0) return;
+      const range = sel.getRangeAt(0);
+      if (!editor.contains(range.commonAncestorContainer)) return;
+      savedSelectionRange = range.cloneRange();
+    }
+
+    function restoreSelectionRange() {
+      if (!savedSelectionRange) return;
+      const sel = window.getSelection();
+      if (!sel) return;
+      sel.removeAllRanges();
+      sel.addRange(savedSelectionRange);
+    }
+
+    function runEditorCommand(command, value) {
+      restoreSelectionRange();
+      editor.focus();
+      if (typeof value === 'undefined') {
+        document.execCommand(command, false, null);
+      } else {
+        document.execCommand(command, false, value);
+      }
+      saveSelectionRange();
+      updateFormatButtons();
+    }
+
+    function toggleBold() {
+      if (!ensureEditMode()) return;
+      runEditorCommand('bold');
+    }
+
+    function toggleItalic() {
+      if (!ensureEditMode()) return;
+      runEditorCommand('italic');
+    }
+
+    function applyTextColor(color) {
+      if (!ensureEditMode()) return;
+      runEditorCommand('styleWithCSS', true);
+      runEditorCommand('foreColor', color || '#1f4b99');
+    }
+
+    function applySelectedFontSize(sizePx) {
+      if (!ensureEditMode()) return;
+      const size = Number(sizePx);
+      if (!size) return;
+      runEditorCommand('fontSize', '7');
+      editor.querySelectorAll('font[size="7"]').forEach((el) => {
+        el.removeAttribute('size');
+        el.style.fontSize = `${size}px`;
+      });
+      editor.style.borderWidth = '1px';
+      editor.style.outline = 'none';
+    }
+
+    function insertEmoji(emoji) {
+      if (!ensureEditMode()) return;
+      runEditorCommand('insertText', emoji || '');
+    }
+
+    function toggleEmojiPanel() {
+      emojiPanel.classList.toggle('hidden');
+      updateFormatButtons();
+    }
+
+    function openPalettePicker() {
+      if (!ensureEditMode()) return;
+      if (!textColorPicker) return;
+      if (typeof textColorPicker.showPicker === 'function') {
+        textColorPicker.showPicker();
+        return;
+      }
+      textColorPicker.click();
+    }
+
+    function updateFormatButtons() {
+      if (boldBtn) boldBtn.classList.toggle('active-format', !!document.queryCommandState('bold'));
+      if (italicBtn) italicBtn.classList.toggle('active-format', !!document.queryCommandState('italic'));
+      if (emojiToggleBtn) emojiToggleBtn.classList.toggle('active-format', !emojiPanel.classList.contains('hidden'));
+    }
+
+    function getEditorContent() {
+      const html = String(editor.innerHTML || '').trim();
+      return html === '<br>' ? '' : html;
+    }
+
+    function getEditorText() {
+      return String(editor.innerText || '').trim();
+    }
+
+    function setEditorContent(html) {
+      editor.innerHTML = String(html || '');
+      if (!editor.innerHTML.trim()) editor.innerHTML = '';
+      editor.style.borderWidth = '1px';
+      saveSelectionRange();
+      updateFormatButtons();
+    }
+
+    function normalizeStoredContent(raw) {
+      const text = String(raw || '');
+      if (!text) return '';
+      if (/[<][a-z!/]/i.test(text)) return text;
+      return escapeHtml(text).replace(/\n/g, '<br>');
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function placeCaretAtEnd(el) {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      range.collapse(false);
+      const sel = window.getSelection();
+      if (!sel) return;
+      sel.removeAllRanges();
+      sel.addRange(range);
+      saveSelectionRange();
+    }
+
+    editor.addEventListener('input', () => {
+      if (!isEditMode) return;
+      memoState[activeMode] = getEditorContent();
+      saveStatus.textContent = '입력 중... 메모저장을 눌러 저장하세요.';
+      editor.style.borderWidth = '1px';
+      saveSelectionRange();
+      updateFormatButtons();
+    });
+    editor.addEventListener('dblclick', () => {
+      if (isEditMode) return;
+      enableEditMode();
+      saveSelectionRange();
+      updateFormatButtons();
+    });
+    editor.addEventListener('mouseup', () => { saveSelectionRange(); updateFormatButtons(); });
+    editor.addEventListener('keyup', () => { saveSelectionRange(); updateFormatButtons(); });
+    editor.addEventListener('blur', () => { saveSelectionRange(); });
+
+    document.addEventListener('mousedown', (event) => {
+      const target = event && event.target ? event.target : null;
+      if (!target) return;
+      if (target.closest('.editor-tools') || target.closest('.editor-subtools')) {
+        saveSelectionRange();
+      }
+    });
+
+    document.addEventListener('selectionchange', () => {
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0) return;
+      const range = sel.getRangeAt(0);
+      if (!editor.contains(range.commonAncestorContainer)) return;
+      saveSelectionRange();
+      updateFormatButtons();
+    });
+
+    window.addEventListener('keydown', (event) => {
+      const key = String(event.key || '').toLowerCase();
+      if (!(event.ctrlKey || event.metaKey) || key !== 's') return;
+      event.preventDefault();
+      if (!isEditMode) {
+        saveStatus.textContent = '메모수정을 누른 뒤 저장할 수 있습니다.';
+        return;
+      }
+      saveFigmaList();
+    });
+
+    document.addEventListener('click', (event) => {
+      const target = event && event.target ? event.target : null;
+      if (!target) return;
+      if (!emojiPanel.contains(target) && !emojiToggleBtn.contains(target)) {
+        emojiPanel.classList.add('hidden');
+        updateFormatButtons();
+      }
+    });
+
+    window.enableEditMode = enableEditMode;
+    window.saveFigmaList = saveFigmaList;
+    window.switchMode = switchMode;
+    window.toggleBold = toggleBold;
+    window.toggleItalic = toggleItalic;
+    window.applySelectedFontSize = applySelectedFontSize;
+    window.applyTextColor = applyTextColor;
+    window.insertEmoji = insertEmoji;
+    window.toggleEmojiPanel = toggleEmojiPanel;
+    window.openPalettePicker = openPalettePicker;
+  </script>
+</body>
+</html>

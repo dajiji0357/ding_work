@@ -4,6 +4,13 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>DING WORK manager</title>
+  <meta property="og:title" content="DING WORK manager">
+  <meta property="og:description" content="업무 관리 페이지">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://dajiji0357.github.io/ding_work/">
+  <meta property="og:image" content="https://dajiji0357.github.io/ding_work/assets/Work_img.png">
+  <meta property="og:image:type" content="image/png">
+  <meta name="twitter:card" content="summary_large_image">
   <link rel="stylesheet" href="style.css">
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
@@ -53,6 +60,7 @@
             <button class="btn tool-btn-create" onclick="openModal('taskCreateModal')">새 작업 등록</button>
             <button class="btn tool-btn-gym" onclick="openGymMoodModal()">월간 짐무드</button>
             <button class="btn tool-btn-brand" onclick="openModal('brandListModal')">브랜드 리스트</button>
+            <button class="btn tool-btn-figma" onclick="openFigmaBoardPage()">피그마</button>
           </div>
           <div class="section-tools-right">
             <button class="btn tool-btn-refresh" onclick="openModal('refreshModal')">리프레시</button>
@@ -360,9 +368,13 @@
           <span class="refresh-mode-ico">🎱</span>
           <span>로또번호</span>
         </button>
-        <button id="refreshModeGameBtn" class="refresh-mode-btn refresh-mode-link" type="button" onclick="openRefreshMiniGame()">
-          <span class="refresh-mode-ico">🎮</span>
-          <span>미니게임</span>
+        <button id="refreshModeLadderBtn" class="refresh-mode-btn" type="button" onclick="setRefreshMode('ladder')">
+          <span class="refresh-mode-ico">🪜</span>
+          <span>사다리타기</span>
+        </button>
+        <button id="refreshModeMazeBtn" class="refresh-mode-btn" type="button" onclick="setRefreshMode('maze')">
+          <span class="refresh-mode-ico">🐾</span>
+          <span>미로내기</span>
         </button>
       </div>
       <div id="refreshFortunePanel" class="refresh-panel">
@@ -447,22 +459,103 @@
           <div id="lottoResultText" class="fortune-result">번호 5줄 뽑기를 눌러주세요.</div>
         </div>
       </div>
+      <div id="refreshClassicLadderPanel" class="refresh-panel hidden">
+        <div class="ladder-wrap">
+          <div class="ladder-input-row">
+            <input id="classicLadderNameInput" class="pill-input" type="text" maxlength="24" placeholder="이름 입력 후 추가">
+            <button class="btn btn-outline" type="button" onclick="addClassicLadderName()">이름 추가</button>
+            <button class="btn btn-outline" type="button" onclick="clearClassicLadderNames()">전체 비우기</button>
+          </div>
+          <div id="classicLadderNameTags" class="ladder-name-tags"></div>
+          <div id="classicLadderHint" class="ladder-hint">최소 2명부터 시작할 수 있어요.</div>
+          <div class="ladder-board">
+            <svg id="classicLadderSvg" class="ladder-svg" viewBox="0 0 800 520" aria-label="사다리 게임판"></svg>
+            <div id="classicLadderConfettiLayer" class="ladder-confetti-layer" aria-hidden="true"></div>
+          </div>
+          <button id="classicLadderStartBtn" class="btn btn-primary full" type="button" onclick="startClassicLadderDraw()">사다리 추첨 시작</button>
+          <div id="classicLadderResultText" class="fortune-result">참가자를 추가하고 시작해보세요.</div>
+        </div>
+      </div>
+
+      <div id="refreshLadderPanel" class="refresh-panel hidden">
+        <div class="ladder-wrap">
+          <div class="ladder-input-row">
+            <input id="ladderNameInput" class="pill-input" type="text" maxlength="24" placeholder="이름 입력 후 추가">
+            <button class="btn btn-outline" type="button" onclick="addLadderName()">이름 추가</button>
+            <button class="btn btn-outline" type="button" onclick="clearLadderNames()">전체 비우기</button>
+          </div>
+          <div id="ladderNameTags" class="ladder-name-tags"></div>
+          <div id="ladderHint" class="ladder-hint">최소 2명부터 시작할 수 있어요.</div>
+          <div class="ladder-board">
+            <svg id="ladderSvg" class="ladder-svg" viewBox="0 0 800 520" aria-label="사다리 게임판"></svg>
+            <div id="ladderFogLayer" class="ladder-fog-layer hidden" aria-hidden="true">
+              <div class="ladder-cover-card">
+                <div class="ladder-cover-title">결과 봉인중</div>
+                <div class="ladder-cover-sub">두두타즈가 열심히 미로 탈출중...</div>
+                <div class="ladder-cover-playground">
+                  <span class="ladder-cover-char walker">🌭</span>
+                  <span class="ladder-cover-char buddy">🐶</span>
+                </div>
+              </div>
+            </div>
+            <div id="ladderWinnerOverlay" class="ladder-winner-overlay hidden" aria-live="polite">
+              <div class="ladder-winner-title">축하합니다!</div>
+              <div id="ladderWinnerName" class="ladder-winner-name"></div>
+              <div class="ladder-winner-sub">당첨!</div>
+            </div>
+            <div id="ladderConfettiLayer" class="ladder-confetti-layer" aria-hidden="true"></div>
+          </div>
+          <button id="ladderStartBtn" class="btn btn-primary full" type="button" onclick="startLadderDraw()">미로내기 시작</button>
+          <div id="ladderResultText" class="fortune-result">참가자를 추가하고 시작해보세요.</div>
+        </div>
+      </div>
     </div>
   </div>
 
   <div id="gymMoodModal" class="modal" onclick="closeOnBackdrop(event, 'gymMoodModal')">
     <div class="modal-content wide">
+      <button id="gymMoodEditToggleBtn" class="btn btn-outline gym-mood-edit-toggle" onclick="toggleGymMoodEditMode()">수정</button>
       <button class="close-btn" onclick="closeModal('gymMoodModal')">&times;</button>
       <h3>월간짐무드 체크</h3>
       <div class="gym-toolbar">
         <input id="gymMonthInput" class="pill-input" type="month" onchange="setGymMoodMonth(this.value)">
         <input id="gymBranchInput" class="pill-input" type="text" placeholder="헬스장 지점명 입력">
         <button class="btn btn-primary" onclick="addGymBranch()">지점 추가</button>
+        <button class="btn gym-figma-link-btn" onclick="openFigmaDesignLink()">피그마 링크</button>
       </div>
       <div id="gymMoodList" class="gym-mood-list"></div>
     </div>
   </div>
 
+  <div id="figmaBoardModal" class="modal" onclick="closeOnBackdrop(event, 'figmaBoardModal')">
+    <div class="modal-content wide">
+      <button class="close-btn" onclick="closeModal('figmaBoardModal')">&times;</button>
+      <h3>피그마 공유 리스트</h3>
+      <div class="figma-board-tools">
+        <span class="figma-board-hint">브랜드별 피그마 경로/메모를 자유롭게 적어두세요.</span>
+        <div class="figma-board-actions">
+          <button class="btn btn-outline" onclick="openFigmaDesignLink()">피그마 링크</button>
+          <button class="btn btn-primary" onclick="saveFigmaBoard()">저장</button>
+        </div>
+      </div>
+      <div class="note-shell figma-board-shell">
+        <textarea id="figmaBoardEditor" class="note-editor note-editor-pane" placeholder="예) 브랜드A - 메인시안: ...&#10;브랜드B - 상세페이지: ..."></textarea>
+      </div>
+    </div>
+  </div>
+
+  <div id="figmaLinkModal" class="modal" onclick="closeOnBackdrop(event, 'figmaLinkModal')">
+    <div class="modal-content wide figma-link-modal-content">
+      <button class="close-btn" onclick="closeModal('figmaLinkModal')">&times;</button>
+      <h3 id="figmaLinkModalTitle">피그마 보기</h3>
+      <div class="figma-link-toolbar">
+        <a id="figmaLinkOpenHere" class="btn btn-outline" href="#" target="_self" rel="noopener">현재 탭에서 열기</a>
+      </div>
+      <iframe id="figmaLinkFrame" class="figma-link-frame" src="about:blank" title="피그마 링크"></iframe>
+    </div>
+  </div>
+
+  <script src="firebase-config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

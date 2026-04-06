@@ -1,13 +1,4 @@
-﻿const firebaseConfig = {
-  apiKey: "AIzaSyDl71Ezdl85KnoEuBpBaz1pVfC2K3yR0QQ",
-  authDomain: "myworkboard-981bf.firebaseapp.com",
-  projectId: "myworkboard-981bf",
-  storageBucket: "myworkboard-981bf.firebasestorage.app",
-  messagingSenderId: "840533947338",
-  appId: "1:840533947338:web:74fc5506b12b39f9279533"
-};
-
-firebase.initializeApp(firebaseConfig);
+﻿firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 const auth = firebase.auth();
 const AUTH_STORAGE_KEY = 'flowos_auth_v1';
@@ -49,12 +40,29 @@ const FORTUNE_COOKIE_ICON = {
   행운: '🍪',
   휴식: '🥮'
 };
-const REFRESH_MODES = ['fortune', 'lotto'];
+const REFRESH_MODES = ['fortune', 'lotto', 'ladder', 'maze'];
 const LOTTO_MAX_NUMBER = 45;
 const LOTTO_PICK_COUNT = 6;
 const LOTTO_LINE_COUNT = 5;
 const LOTTO_DRAW_DELAY_MS = 1350;
+const LADDER_MIN_PLAYERS = 2;
+const LADDER_MAX_PLAYERS = 12;
+const LADDER_TRACE_DURATION_MS = 2800;
+const LADDER_SUSPENSE_DURATION_MS = 2200;
+const LADDER_WINNER_OVERLAY_MS = 2200;
+const MAZE_MIN_COLS = 16;
+const MAZE_MAX_COLS = 26;
+const MAZE_MIN_ROWS = 13;
+const MAZE_MAX_ROWS = 18;
+const GYM_FIGMA_LINK_URL = 'https://www.figma.com/design/N8Zh1ZD74dr4JqfmImrNMY/%EC%9B%94%EA%B0%84-%EC%A7%90%EB%AC%B4%EB%93%9C?node-id=0-1&t=ivmlP1iVhL780gf8-1';
 let refreshLottoDrawToken = 0;
+let refreshClassicLadderDrawToken = 0;
+let refreshClassicLadderNames = [];
+let refreshClassicLadderInitialized = false;
+let refreshLadderDrawToken = 0;
+let refreshLadderNames = [];
+let refreshLadderInitialized = false;
+let refreshLadderWinnerTimer = null;
 const BRAND_COLOR_PRESETS = [
   { key: 'ocean', label: '오션', light: '#2f63c8', dark: '#8fc0ff' },
   { key: 'mint', label: '민트', light: '#1f8f6d', dark: '#88e3c1' },
@@ -83,10 +91,12 @@ const localState = {
   archiveType: "보류중",
   editingTaskId: null,
   sharedMemoSaveTimer: null,
+  figmaBoardSaveTimer: null,
   memoSaveTimers: {},
   memoPreviewTimers: {},
   memoTypingUntil: 0,
   memoRenderTimer: null,
+  figmaBoardContent: '',
   migrationTried: false,
   adminTaskQuery: '',
   adminTaskStatus: '',
@@ -99,6 +109,7 @@ const localState = {
   gymMoodRows: [],
   gymMoodMonth: getCurrentMonthValue(),
   gymMoodDragId: '',
+  gymMoodEditMode: false,
   themeMode: 'light',
   brandEditMode: false
 };
@@ -172,6 +183,16 @@ function initRealtime() {
     if (memoEl && document.activeElement !== memoEl) {
       memoEl.value = content;
       renderSharedView(content);
+    }
+  }, handleRealtimeError);
+
+  db.collection(COLLECTIONS.config).doc('figmaLinks').onSnapshot({ includeMetadataChanges: true }, (doc) => {
+    setFirebaseConnectedFromSnapshot(doc);
+    const editor = document.getElementById('figmaBoardEditor');
+    const content = doc.exists ? String(doc.data().content || '') : '';
+    localState.figmaBoardContent = content;
+    if (editor && document.activeElement !== editor) {
+      editor.value = content;
     }
   }, handleRealtimeError);
 }
@@ -614,10 +635,10 @@ function moveTaskWithinStatus(taskId, direction) {
 
 function getTaskSticker(status) {
   if (status === '업무대기') return { emoji: '🥚', type: 'egg' };
-  if (status === '진행중') return { emoji: '🥚', type: 'egg wobble' };
-  if (status === '컨펌중') return { emoji: '🐣', type: 'chick' };
-  if (status === '수정중') return { emoji: '🐣', type: 'chick wobble' };
-  if (status === '작업완료') return { emoji: '🐥', type: 'chick' };
+  if (status === '진행중') return { emoji: '🐣', type: 'egg wobble' };
+  if (status === '컨펌중') return { emoji: '🐤', type: 'chick' };
+  if (status === '수정중') return { emoji: '🐥', type: 'chick wobble' };
+  if (status === '작업완료') return { emoji: '🐔', type: 'chick' };
   return null;
 }
 
@@ -1244,12 +1265,47 @@ function updateBrandEditToggleButton() {
 }
 
 function openGymMoodModal() {
+  localState.gymMoodEditMode = false;
+  updateGymMoodEditToggleButton();
   const monthInput = document.getElementById('gymMonthInput');
   if (monthInput) monthInput.value = localState.gymMoodMonth;
   ensureGymMoodMonthRows(localState.gymMoodMonth).then(() => {
     renderGymMoodList();
     openModal('gymMoodModal');
   });
+}
+
+function toggleGymMoodEditMode(forceMode) {
+  const next = typeof forceMode === 'boolean' ? forceMode : !localState.gymMoodEditMode;
+  localState.gymMoodEditMode = !!next;
+  updateGymMoodEditToggleButton();
+  renderGymMoodList();
+}
+
+function updateGymMoodEditToggleButton() {
+  const btn = document.getElementById('gymMoodEditToggleBtn');
+  if (!btn) return;
+  btn.textContent = localState.gymMoodEditMode ? '수정 닫기' : '수정';
+}
+
+function openFigmaDesignLink() {
+  openFigmaLinkModal(GYM_FIGMA_LINK_URL, '피그마 링크');
+}
+
+function openFigmaBoardPage() {
+  openFigmaLinkModal('figma.html', '피그마 백업경로');
+}
+
+function openFigmaLinkModal(url, title) {
+  const frame = document.getElementById('figmaLinkFrame');
+  const titleEl = document.getElementById('figmaLinkModalTitle');
+  const openBtn = document.getElementById('figmaLinkOpenHere');
+  const nextUrl = String(url || '').trim();
+  if (!nextUrl) return;
+  if (titleEl) titleEl.textContent = title || '피그마 보기';
+  if (openBtn) openBtn.href = nextUrl;
+  if (frame) frame.src = nextUrl;
+  openModal('figmaLinkModal');
 }
 
 function setGymMoodMonth(value) {
@@ -1301,6 +1357,37 @@ function toggleGymMoodCheck(rowId, category, checked) {
   });
 }
 
+function editGymBranch(rowId) {
+  const row = localState.gymMoodRows.find((item) => item.id === rowId);
+  if (!row) return;
+  const current = String(row.branch || '').trim();
+  const next = prompt('지점명을 수정하세요.', current);
+  if (next === null) return;
+  const branch = String(next || '').trim();
+  if (!branch) {
+    alert('지점명을 입력하세요.');
+    return;
+  }
+  const duplicated = localState.gymMoodRows.some((item) => {
+    if (item.id === rowId) return false;
+    return item.month === row.month && String(item.branch || '').trim() === branch;
+  });
+  if (duplicated) {
+    alert('같은 월에 이미 등록된 지점명입니다.');
+    return;
+  }
+  db.collection(COLLECTIONS.gymMood).doc(rowId).update({
+    branch,
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+  });
+}
+
+function deleteGymBranch(rowId) {
+  if (!rowId) return;
+  if (!confirm('이 지점을 삭제할까요?')) return;
+  db.collection(COLLECTIONS.gymMood).doc(rowId).delete();
+}
+
 function renderGymMoodList() {
   const list = document.getElementById('gymMoodList');
   if (!list) return;
@@ -1328,7 +1415,12 @@ function renderGymMoodList() {
       <article class="gym-mood-row" draggable="true" ondragstart="startGymMoodDrag('${row.id}')" ondragover="allowGymMoodDrop(event)" ondragleave="leaveGymMoodDrop(event)" ondrop="dropGymMood('${row.id}', event)" ondragend="endGymMoodDrag()">
         <div class="gym-mood-head">
           <span class="gym-mood-branch">${escapeHtml(row.branch || '')}</span>
-          <span class="worker-load-total">${doneCount}/${GYM_CATEGORIES.length} 완료</span>
+          ${localState.gymMoodEditMode
+            ? `<div class="gym-head-actions">
+                <button type="button" class="btn btn-outline small gym-row-edit-btn" onclick="event.stopPropagation(); editGymBranch('${row.id}')">수정</button>
+                <button type="button" class="btn btn-outline small gym-row-delete-btn" onclick="event.stopPropagation(); deleteGymBranch('${row.id}')">지점삭제</button>
+               </div>`
+            : `<span class="worker-load-total">${doneCount}/${GYM_CATEGORIES.length} 완료</span>`}
         </div>
         <div class="gym-mood-checks">${checkItems}</div>
       </article>
@@ -1362,18 +1454,764 @@ function setRefreshMode(mode) {
   const selectedMode = REFRESH_MODES.includes(mode) ? mode : 'fortune';
   const fortunePanel = document.getElementById('refreshFortunePanel');
   const lottoPanel = document.getElementById('refreshLottoPanel');
+  const classicLadderPanel = document.getElementById('refreshClassicLadderPanel');
+  const mazePanel = document.getElementById('refreshLadderPanel');
   const fortuneBtn = document.getElementById('refreshModeFortuneBtn');
   const lottoBtn = document.getElementById('refreshModeLottoBtn');
+  const ladderBtn = document.getElementById('refreshModeLadderBtn');
+  const mazeBtn = document.getElementById('refreshModeMazeBtn');
   const isFortune = selectedMode === 'fortune';
+  const isLotto = selectedMode === 'lotto';
+  const isLadder = selectedMode === 'ladder';
+  const isMaze = selectedMode === 'maze';
 
   if (fortunePanel) fortunePanel.classList.toggle('hidden', !isFortune);
-  if (lottoPanel) lottoPanel.classList.toggle('hidden', isFortune);
+  if (lottoPanel) lottoPanel.classList.toggle('hidden', !isLotto);
+  if (classicLadderPanel) classicLadderPanel.classList.toggle('hidden', !isLadder);
+  if (mazePanel) mazePanel.classList.toggle('hidden', !isMaze);
   if (fortuneBtn) fortuneBtn.classList.toggle('active', isFortune);
-  if (lottoBtn) lottoBtn.classList.toggle('active', !isFortune);
+  if (lottoBtn) lottoBtn.classList.toggle('active', isLotto);
+  if (ladderBtn) ladderBtn.classList.toggle('active', isLadder);
+  if (mazeBtn) mazeBtn.classList.toggle('active', isMaze);
+  if (isLadder) ensureRefreshClassicLadderReady();
+  if (isMaze) ensureRefreshLadderReady();
 }
 
 function openRefreshMiniGame() {
   window.open('https://duding3.github.io/d_ding/', '_blank', 'noopener,noreferrer');
+}
+
+function ensureRefreshClassicLadderReady() {
+  if (!refreshClassicLadderInitialized) {
+    const input = document.getElementById('classicLadderNameInput');
+    if (input) {
+      input.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter') return;
+        event.preventDefault();
+        addClassicLadderName();
+      });
+    }
+    refreshClassicLadderInitialized = true;
+  }
+  renderClassicLadderNameTags();
+}
+
+function addClassicLadderName(rawName) {
+  const input = document.getElementById('classicLadderNameInput');
+  const nextName = String(rawName != null ? rawName : (input ? input.value : ''))
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!nextName) return;
+  if (refreshClassicLadderNames.length >= LADDER_MAX_PLAYERS) {
+    alert(`사다리타기는 최대 ${LADDER_MAX_PLAYERS}명까지 가능합니다.`);
+    return;
+  }
+  refreshClassicLadderNames.push(nextName);
+  if (input) input.value = '';
+  renderClassicLadderNameTags();
+}
+
+function removeClassicLadderName(index) {
+  const idx = Number(index);
+  if (!Number.isInteger(idx) || idx < 0 || idx >= refreshClassicLadderNames.length) return;
+  refreshClassicLadderNames.splice(idx, 1);
+  renderClassicLadderNameTags();
+}
+
+function clearClassicLadderNames() {
+  refreshClassicLadderNames = [];
+  renderClassicLadderNameTags();
+}
+
+function renderClassicLadderNameTags() {
+  const tags = document.getElementById('classicLadderNameTags');
+  const hint = document.getElementById('classicLadderHint');
+  const result = document.getElementById('classicLadderResultText');
+  const startBtn = document.getElementById('classicLadderStartBtn');
+  if (!tags) return;
+
+  if (!refreshClassicLadderNames.length) {
+    tags.innerHTML = '<span class="ladder-empty-chip">아직 참가자가 없습니다.</span>';
+  } else {
+    tags.innerHTML = refreshClassicLadderNames
+      .map((name, idx) => `<span class="ladder-chip">${escapeHtml(name)} <button type="button" onclick="removeClassicLadderName(${idx})" aria-label="${escapeHtml(name)} 삭제">×</button></span>`)
+      .join('');
+  }
+  if (hint) hint.textContent = `${refreshClassicLadderNames.length}명 참가중 · ${LADDER_MIN_PLAYERS}명 이상이면 시작할 수 있어요.`;
+  if (startBtn) startBtn.disabled = refreshClassicLadderNames.length < LADDER_MIN_PLAYERS;
+  if (result && refreshClassicLadderNames.length < LADDER_MIN_PLAYERS) {
+    result.textContent = '참가자를 추가하고 시작해보세요.';
+    result.classList.remove('show');
+  }
+  renderClassicLadderBoard(null);
+}
+
+async function startClassicLadderDraw() {
+  if (refreshClassicLadderNames.length < LADDER_MIN_PLAYERS) {
+    alert(`최소 ${LADDER_MIN_PLAYERS}명 이상 추가해주세요.`);
+    return;
+  }
+  const startBtn = document.getElementById('classicLadderStartBtn');
+  if (startBtn && startBtn.disabled) return;
+  if (startBtn) startBtn.disabled = true;
+
+  const drawToken = ++refreshClassicLadderDrawToken;
+  const model = generateClassicLadderModel(refreshClassicLadderNames);
+  renderClassicLadderBoard(model, { showOutcome: false });
+  setClassicLadderResultText('사다리를 준비중...');
+
+  const selectedStart = await runClassicLadderSuspense(model, drawToken);
+  if (drawToken !== refreshClassicLadderDrawToken || selectedStart < 0) return;
+  const traced = traceClassicLadder(model, selectedStart);
+
+  renderClassicLadderBoard(model, {
+    showOutcome: false,
+    highlightStart: selectedStart,
+    pathD: toSvgPathD(traced.points)
+  });
+  setClassicLadderResultText('사다리를 타고 내려가는 중...');
+  await animateClassicLadderTrace(drawToken);
+  if (drawToken !== refreshClassicLadderDrawToken) return;
+
+  renderClassicLadderBoard(model, {
+    showOutcome: true,
+    highlightStart: selectedStart,
+    highlightEnd: traced.endCol,
+    pathD: toSvgPathD(traced.points),
+    keepTraceShown: true
+  });
+  setClassicLadderResultText(`축하합니다! ${refreshClassicLadderNames[selectedStart]} 당첨!`);
+  playWinnerFanfare();
+  launchLadderCelebration('classicLadderConfettiLayer');
+  if (startBtn) startBtn.disabled = false;
+}
+
+function runClassicLadderSuspense(model, drawToken) {
+  return new Promise((resolve) => {
+    const startAt = Date.now();
+    let lastIdx = -1;
+    const tick = () => {
+      if (drawToken !== refreshClassicLadderDrawToken) {
+        resolve(-1);
+        return;
+      }
+      let idx = Math.floor(Math.random() * model.playerCount);
+      if (model.playerCount > 1 && idx === lastIdx) idx = (idx + 1) % model.playerCount;
+      lastIdx = idx;
+      renderClassicLadderBoard(model, { showOutcome: false, highlightStart: idx });
+      setClassicLadderResultText('누가 당첨될지 확인중...');
+      if (Date.now() - startAt < LADDER_SUSPENSE_DURATION_MS) {
+        setTimeout(tick, 120);
+      } else {
+        resolve(idx);
+      }
+    };
+    tick();
+  });
+}
+
+function generateClassicLadderModel(names) {
+  const playerNames = Array.isArray(names) ? names.slice() : [];
+  const playerCount = playerNames.length;
+  const rows = 16 + Math.floor(Math.random() * 9) + Math.max(0, Math.floor((playerCount - 2) * 1.1));
+  const rungs = [];
+  for (let row = 1; row < rows; row += 1) {
+    let col = 0;
+    while (col < playerCount - 1) {
+      const chance = row % 2 === 0 ? 0.5 : 0.35;
+      if (Math.random() < chance) {
+        rungs.push({ row, col });
+        col += 2;
+      } else {
+        col += 1;
+      }
+    }
+  }
+  const mapping = playerNames.map((_, idx) => traceClassicLadder({ playerCount, rows, rungs }, idx).endCol);
+  const winnerStart = Math.floor(Math.random() * playerCount);
+  const winningBottom = mapping[winnerStart];
+  const bottomLabels = Array.from({ length: playerCount }, (_, idx) => (idx === winningBottom ? '당첨' : '꽝'));
+  return { playerNames, playerCount, rows, rungs, bottomLabels, winningBottom };
+}
+
+function traceClassicLadder(model, startCol) {
+  const points = [];
+  const layout = buildClassicLadderLayout(model.playerCount, model.rows);
+  const rungSet = new Set((model.rungs || []).map((rung) => `${rung.row}:${rung.col}`));
+  let col = Number(startCol);
+  points.push({ x: layout.columns[col], y: layout.top });
+  for (let row = 1; row < model.rows; row += 1) {
+    const y = layout.top + (layout.rowGap * row);
+    points.push({ x: layout.columns[col], y });
+    if (rungSet.has(`${row}:${col}`)) {
+      col += 1;
+      points.push({ x: layout.columns[col], y });
+    } else if (rungSet.has(`${row}:${col - 1}`)) {
+      col -= 1;
+      points.push({ x: layout.columns[col], y });
+    }
+  }
+  points.push({ x: layout.columns[col], y: layout.bottom });
+  return { points, endCol: col };
+}
+
+function buildClassicLadderLayout(playerCount, rowCount) {
+  const width = 800;
+  const top = 92;
+  const bottom = 442;
+  const left = 68;
+  const right = 732;
+  const colGap = (right - left) / Math.max(1, playerCount - 1);
+  const columns = Array.from({ length: playerCount }, (_, idx) => left + (colGap * idx));
+  const rowGap = (bottom - top) / Math.max(1, rowCount - 1);
+  return { width, top, bottom, columns, rowGap };
+}
+
+function renderClassicLadderBoard(model, options = {}) {
+  const svg = document.getElementById('classicLadderSvg');
+  if (!svg) return;
+  if (!model || !model.playerCount) {
+    svg.innerHTML = '<text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" class="ladder-empty-text">참가자를 추가한 뒤 시작하면 사다리가 생성됩니다.</text>';
+    return;
+  }
+  const { playerNames, playerCount, rows, rungs, bottomLabels } = model;
+  const { showOutcome = false, highlightStart = -1, highlightEnd = -1, pathD = '', keepTraceShown = false } = options;
+  const layout = buildClassicLadderLayout(playerCount, rows);
+  const rails = layout.columns.map((x) => `<line class="ladder-rail" x1="${x}" y1="${layout.top}" x2="${x}" y2="${layout.bottom}" />`).join('');
+  const rungLines = rungs.map((rung) => {
+    const y = layout.top + (layout.rowGap * rung.row);
+    const x1 = layout.columns[rung.col];
+    const x2 = layout.columns[rung.col + 1];
+    return `<line class="ladder-rung" x1="${x1}" y1="${y}" x2="${x2}" y2="${y}" />`;
+  }).join('');
+  const topNodes = playerNames.map((name, idx) => `
+    <g class="ladder-node ${idx === highlightStart ? 'active' : ''}" transform="translate(${layout.columns[idx]},42)">
+      <circle r="21"></circle>
+      <text y="4" text-anchor="middle">${escapeSvgText(name)}</text>
+    </g>
+  `).join('');
+  const bottoms = bottomLabels.map((label, idx) => `
+    <g class="ladder-bottom ${(showOutcome && idx === model.winningBottom) ? 'win' : ''} ${(showOutcome && idx === highlightEnd) ? 'hit' : ''}" transform="translate(${layout.columns[idx]},478)">
+      <rect x="-40" y="-17" width="80" height="34" rx="12" ry="12"></rect>
+      <text y="5" text-anchor="middle">${escapeSvgText(showOutcome ? label : '???')}</text>
+    </g>
+  `).join('');
+  const trace = pathD ? `<path id="classicLadderTracePath" class="ladder-trace ${keepTraceShown ? 'done' : ''}" d="${pathD}"></path>` : '';
+  svg.innerHTML = `<rect class="ladder-bg" x="0" y="0" width="${layout.width}" height="520" rx="16" ry="16"></rect>${rails}${rungLines}${trace}${topNodes}${bottoms}`;
+}
+
+function animateClassicLadderTrace(drawToken) {
+  return new Promise((resolve) => {
+    const path = document.getElementById('classicLadderTracePath');
+    if (!path) {
+      resolve();
+      return;
+    }
+    const totalLength = path.getTotalLength();
+    path.style.strokeDasharray = `${totalLength}`;
+    path.style.strokeDashoffset = `${totalLength}`;
+    void path.getBoundingClientRect();
+    path.style.transition = `stroke-dashoffset ${LADDER_TRACE_DURATION_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`;
+    path.style.strokeDashoffset = '0';
+    setTimeout(() => {
+      if (drawToken !== refreshClassicLadderDrawToken) {
+        resolve();
+        return;
+      }
+      path.classList.add('done');
+      resolve();
+    }, LADDER_TRACE_DURATION_MS + 70);
+  });
+}
+
+function setClassicLadderResultText(text) {
+  const result = document.getElementById('classicLadderResultText');
+  if (!result) return;
+  result.textContent = text;
+  result.classList.remove('show');
+  void result.offsetWidth;
+  result.classList.add('show');
+}
+
+function ensureRefreshLadderReady() {
+  if (!refreshLadderInitialized) {
+    const input = document.getElementById('ladderNameInput');
+    if (input) {
+      input.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter') return;
+        event.preventDefault();
+        addLadderName();
+      });
+    }
+    refreshLadderInitialized = true;
+  }
+  renderLadderNameTags();
+  setLadderFogVisible(false, true);
+  hideLadderWinnerOverlay();
+}
+
+function addLadderName(rawName) {
+  const input = document.getElementById('ladderNameInput');
+  const nextName = String(rawName != null ? rawName : (input ? input.value : ''))
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!nextName) return;
+  if (refreshLadderNames.length >= LADDER_MAX_PLAYERS) {
+    alert(`미로내기는 최대 ${LADDER_MAX_PLAYERS}명까지 가능합니다.`);
+    return;
+  }
+  refreshLadderNames.push(nextName);
+  if (input) input.value = '';
+  renderLadderNameTags();
+}
+
+function removeLadderName(index) {
+  const idx = Number(index);
+  if (!Number.isInteger(idx) || idx < 0 || idx >= refreshLadderNames.length) return;
+  refreshLadderNames.splice(idx, 1);
+  renderLadderNameTags();
+}
+
+function clearLadderNames() {
+  refreshLadderNames = [];
+  renderLadderNameTags();
+}
+
+function renderLadderNameTags() {
+  const tags = document.getElementById('ladderNameTags');
+  const hint = document.getElementById('ladderHint');
+  const result = document.getElementById('ladderResultText');
+  const startBtn = document.getElementById('ladderStartBtn');
+  if (!tags) return;
+
+  if (!refreshLadderNames.length) {
+    tags.innerHTML = '<span class="ladder-empty-chip">아직 참가자가 없습니다.</span>';
+  } else {
+    tags.innerHTML = refreshLadderNames
+      .map((name, idx) => `<span class="ladder-chip">${escapeHtml(name)} <button type="button" onclick="removeLadderName(${idx})" aria-label="${escapeHtml(name)} 삭제">×</button></span>`)
+      .join('');
+  }
+  if (hint) hint.textContent = `${refreshLadderNames.length}명 참가중 · ${LADDER_MIN_PLAYERS}명 이상이면 시작할 수 있어요.`;
+  if (startBtn) startBtn.disabled = refreshLadderNames.length < LADDER_MIN_PLAYERS;
+  if (result && refreshLadderNames.length < LADDER_MIN_PLAYERS) {
+    result.textContent = '참가자를 추가하고 시작해보세요.';
+    result.classList.remove('show');
+  }
+  renderLadderBoard(null);
+}
+
+async function startLadderDraw() {
+  if (refreshLadderNames.length < LADDER_MIN_PLAYERS) {
+    alert(`최소 ${LADDER_MIN_PLAYERS}명 이상 추가해주세요.`);
+    return;
+  }
+  const startBtn = document.getElementById('ladderStartBtn');
+  if (startBtn && startBtn.disabled) return;
+  if (startBtn) startBtn.disabled = true;
+
+  const drawToken = ++refreshLadderDrawToken;
+  const model = generateLadderModel(refreshLadderNames);
+  renderLadderBoard(model, { showOutcome: false });
+  hideLadderWinnerOverlay();
+  setLadderFogVisible(true);
+  setLadderResultText('미로를 생성중...');
+
+  const selectedStart = await runLadderSuspense(model, drawToken);
+  if (drawToken !== refreshLadderDrawToken || selectedStart < 0) return;
+
+  const traced = traceLadder(model, selectedStart);
+  renderLadderBoard(model, {
+    showOutcome: false,
+    highlightStart: selectedStart,
+    pathD: toSvgPathD(traced.points),
+    runnerPoint: traced.points[0]
+  });
+  setLadderResultText('캐릭터가 미로를 탈출하는 중...');
+  await animateLadderTrace(drawToken);
+  if (drawToken !== refreshLadderDrawToken) return;
+
+  renderLadderBoard(model, {
+    showOutcome: true,
+    highlightStart: selectedStart,
+    highlightEnd: traced.endSlot,
+    pathD: toSvgPathD(traced.points),
+    keepTraceShown: true,
+    runnerPoint: traced.points[traced.points.length - 1]
+  });
+  setLadderFogVisible(false);
+  setLadderResultText(`축하합니다! ${refreshLadderNames[selectedStart]} 당첨!`);
+  playWinnerFanfare();
+  launchLadderCelebration();
+  showLadderWinnerOverlay(refreshLadderNames[selectedStart]);
+  if (startBtn) startBtn.disabled = false;
+}
+
+function runLadderSuspense(model, drawToken) {
+  return new Promise((resolve) => {
+    const startAt = Date.now();
+    let lastIdx = -1;
+    const tick = () => {
+      if (drawToken !== refreshLadderDrawToken) {
+        resolve(-1);
+        return;
+      }
+      let idx = Math.floor(Math.random() * model.playerCount);
+      if (model.playerCount > 1 && idx === lastIdx) idx = (idx + 1) % model.playerCount;
+      lastIdx = idx;
+      renderLadderBoard(model, { showOutcome: false, highlightStart: idx });
+      setLadderResultText('누가 당첨될지 확인중...');
+      if (Date.now() - startAt < LADDER_SUSPENSE_DURATION_MS) {
+        setTimeout(tick, 120);
+      } else {
+        resolve(idx);
+      }
+    };
+    tick();
+  });
+}
+
+function generateLadderModel(names) {
+  const playerNames = Array.isArray(names) ? names.slice() : [];
+  const playerCount = playerNames.length;
+  const gridCols = Math.min(MAZE_MAX_COLS, Math.max(MAZE_MIN_COLS, (playerCount * 2) + 10));
+  const gridRows = Math.max(MAZE_MIN_ROWS, Math.min(MAZE_MAX_ROWS, 12 + playerCount + Math.floor(Math.random() * 3)));
+  const layout = buildLadderLayout(playerCount, gridRows, gridCols);
+  const starts = layout.startCols.slice();
+  const shuffledExitSlots = shuffleArray(Array.from({ length: playerCount }, (_, idx) => idx));
+
+  const playerPaths = [];
+  const playerEnds = [];
+  for (let idx = 0; idx < playerCount; idx += 1) {
+    const targetSlot = shuffledExitSlots[idx];
+    const targetCol = starts[targetSlot];
+    playerPaths.push(buildMazePath(starts[idx], targetCol, gridRows, gridCols));
+    playerEnds.push(targetSlot);
+  }
+
+  const winnerStart = Math.floor(Math.random() * playerCount);
+  const winningBottom = playerEnds[winnerStart];
+  const bottomLabels = Array.from({ length: playerCount }, (_, idx) => (idx === winningBottom ? '당첨' : '꽝'));
+  const walls = buildMazeWalls(gridCols, gridRows, playerPaths);
+  return { playerNames, playerCount, gridCols, gridRows, starts, playerPaths, playerEnds, walls, bottomLabels, winningBottom };
+}
+
+function traceLadder(model, startIndex) {
+  const idx = Number(startIndex);
+  const path = Array.isArray(model.playerPaths[idx]) ? model.playerPaths[idx] : [];
+  const points = path.map((cell) => mazeCellToPoint(model, cell));
+  const endSlot = Number.isInteger(model.playerEnds[idx]) ? model.playerEnds[idx] : 0;
+  return { points, endSlot };
+}
+
+function buildLadderLayout(playerCount, rowCount, gridCols) {
+  const width = 800;
+  const top = 96;
+  const bottom = 442;
+  const left = 56;
+  const right = 744;
+  const mazeColCount = Math.max(2, Number(gridCols || MAZE_MIN_COLS));
+  const mazeRowCount = Math.max(2, Number(rowCount || MAZE_MIN_ROWS));
+  const mazeColGap = (right - left) / Math.max(1, mazeColCount - 1);
+  const mazeRowGap = (bottom - top) / Math.max(1, mazeRowCount - 1);
+  const mazeCols = Array.from({ length: mazeColCount }, (_, idx) => left + (mazeColGap * idx));
+  const rowGap = (bottom - top) / Math.max(1, rowCount - 1);
+  const available = Math.max(1, playerCount - 1);
+  const startCols = Array.from({ length: playerCount }, (_, idx) => Math.round((idx / available) * (mazeColCount - 1)));
+  const topXs = startCols.map((colIdx) => mazeCols[colIdx]);
+  return { width, top, bottom, left, right, mazeCols, mazeRowGap, rowGap, startCols, topXs };
+}
+
+function buildMazePath(startCol, targetCol, rowCount, gridCols) {
+  const cells = [{ x: startCol, y: 0 }];
+  let x = startCol;
+  let y = 0;
+  const maxCol = Math.max(1, gridCols - 2);
+
+  while (y < rowCount - 1) {
+    const rowsLeft = (rowCount - 1) - y;
+    const needAlign = Math.abs(targetCol - x) > Math.max(1, Math.floor(rowsLeft / 3));
+    if (needAlign || Math.random() < 0.48) {
+      let dir = targetCol === x ? (Math.random() < 0.5 ? -1 : 1) : Math.sign(targetCol - x);
+      if (!needAlign && Math.random() < 0.24) dir *= -1;
+      const stride = 1 + Math.floor(Math.random() * 2);
+      const nextX = Math.max(1, Math.min(maxCol, x + (dir * stride)));
+      if (nextX !== x) {
+        x = nextX;
+        cells.push({ x, y });
+      }
+    }
+    let down = 1 + (Math.random() < 0.28 ? 1 : 0);
+    if (rowsLeft <= 3) down = 1;
+    y = Math.min(rowCount - 1, y + down);
+    cells.push({ x, y });
+  }
+
+  if (x !== targetCol) {
+    x = targetCol;
+    cells.push({ x, y });
+  }
+  return compactMazePath(cells);
+}
+
+function compactMazePath(cells) {
+  const compacted = [];
+  cells.forEach((cell) => {
+    const prev = compacted[compacted.length - 1];
+    if (!prev || prev.x !== cell.x || prev.y !== cell.y) compacted.push(cell);
+  });
+  return compacted;
+}
+
+function shuffleArray(arr) {
+  const copy = Array.isArray(arr) ? arr.slice() : [];
+  for (let i = copy.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const temp = copy[i];
+    copy[i] = copy[j];
+    copy[j] = temp;
+  }
+  return copy;
+}
+
+function buildMazeWalls(gridCols, gridRows, playerPaths) {
+  const walls = [];
+  const pathCells = new Set();
+  (playerPaths || []).forEach((path) => {
+    (path || []).forEach((cell) => pathCells.add(`${cell.x}:${cell.y}`));
+  });
+
+  for (let y = 1; y < gridRows - 1; y += 1) {
+    for (let x = 1; x < gridCols - 2; x += 1) {
+      if (pathCells.has(`${x}:${y}`)) continue;
+      if (Math.random() < 0.18) walls.push({ t: 'h', x1: x, y1: y, x2: x + 1, y2: y });
+      if (Math.random() < 0.13) walls.push({ t: 'v', x1: x, y1: y, x2: x, y2: y + 1 });
+    }
+  }
+  return walls;
+}
+
+function mazeCellToPoint(model, cell) {
+  const layout = buildLadderLayout(model.playerCount, model.gridRows, model.gridCols);
+  const colIdx = Math.max(0, Math.min(layout.mazeCols.length - 1, Number(cell.x)));
+  const rowIdx = Math.max(0, Math.min(model.gridRows - 1, Number(cell.y)));
+  return {
+    x: layout.mazeCols[colIdx],
+    y: layout.top + (layout.mazeRowGap * rowIdx)
+  };
+}
+
+function renderLadderBoard(model, options = {}) {
+  const svg = document.getElementById('ladderSvg');
+  if (!svg) return;
+  if (!model || !model.playerCount) {
+    svg.innerHTML = '<text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" class="ladder-empty-text">참가자를 추가한 뒤 시작하면 미로가 생성됩니다.</text>';
+    return;
+  }
+
+  const { playerNames, playerCount, bottomLabels } = model;
+  const { showOutcome = false, highlightStart = -1, highlightEnd = -1, pathD = '', keepTraceShown = false, runnerPoint = null } = options;
+  const layout = buildLadderLayout(playerCount, model.gridRows, model.gridCols);
+
+  const mazeWalls = (model.walls || [])
+    .map((wall) => {
+      const p1 = mazeCellToPoint(model, { x: wall.x1, y: wall.y1 });
+      const p2 = mazeCellToPoint(model, { x: wall.x2, y: wall.y2 });
+      return `<line class="maze-wall" x1="${p1.x}" y1="${p1.y}" x2="${p2.x}" y2="${p2.y}" />`;
+    }).join('');
+  const guideRails = layout.topXs
+    .map((x) => `<line class="maze-guide-rail" x1="${x}" y1="${layout.top - 12}" x2="${x}" y2="${layout.bottom + 12}" />`)
+    .join('');
+  const topNodes = playerNames
+    .map((name, idx) => {
+      const x = layout.topXs[idx];
+      const isActive = idx === highlightStart;
+      return `
+        <g class="ladder-node ${isActive ? 'active' : ''}" transform="translate(${x},42)">
+          <circle r="21"></circle>
+          <text y="4" text-anchor="middle">${escapeSvgText(name)}</text>
+        </g>
+      `;
+    })
+    .join('');
+  const bottoms = bottomLabels
+    .map((label, idx) => {
+      const x = layout.topXs[idx];
+      const txt = showOutcome ? label : '???';
+      const isWin = showOutcome && idx === model.winningBottom;
+      const isHit = showOutcome && idx === highlightEnd;
+      return `
+        <g class="ladder-bottom ${isWin ? 'win' : ''} ${isHit ? 'hit' : ''}" transform="translate(${x},478)">
+          <rect x="-40" y="-17" width="80" height="34" rx="12" ry="12"></rect>
+          <text y="5" text-anchor="middle">${escapeSvgText(txt)}</text>
+        </g>
+      `;
+    })
+    .join('');
+  const trace = pathD
+    ? `<path id="ladderTracePath" class="ladder-trace ${keepTraceShown ? 'done' : ''}" d="${pathD}"></path>`
+    : '';
+  const runner = runnerPoint
+    ? `<g id="mazeRunner" class="maze-runner" transform="translate(${runnerPoint.x} ${runnerPoint.y})"><circle r="12"></circle><text y="5" text-anchor="middle">🐭</text></g>`
+    : '';
+
+  svg.innerHTML = `
+    <rect class="ladder-bg" x="0" y="0" width="${layout.width}" height="520" rx="16" ry="16"></rect>
+    ${guideRails}
+    ${mazeWalls}
+    ${trace}
+    ${runner}
+    ${topNodes}
+    ${bottoms}
+  `;
+}
+
+function toSvgPathD(points) {
+  if (!Array.isArray(points) || !points.length) return '';
+  const [first, ...rest] = points;
+  return `M ${first.x} ${first.y} ${rest.map((p) => `L ${p.x} ${p.y}`).join(' ')}`;
+}
+
+function animateLadderTrace(drawToken) {
+  return new Promise((resolve) => {
+    const path = document.getElementById('ladderTracePath');
+    const runner = document.getElementById('mazeRunner');
+    if (!path) {
+      resolve();
+      return;
+    }
+    const totalLength = path.getTotalLength();
+    path.style.strokeDasharray = `${totalLength}`;
+    path.style.strokeDashoffset = `${totalLength}`;
+    const startTs = performance.now();
+
+    const tick = (now) => {
+      if (drawToken !== refreshLadderDrawToken) {
+        resolve();
+        return;
+      }
+      const progress = Math.max(0, Math.min(1, (now - startTs) / LADDER_TRACE_DURATION_MS));
+      const progressed = totalLength * progress;
+      path.style.strokeDashoffset = `${Math.max(0, totalLength - progressed)}`;
+      if (runner) {
+        const point = path.getPointAtLength(progressed);
+        runner.setAttribute('transform', `translate(${point.x} ${point.y})`);
+      }
+      if (progress < 1) {
+        requestAnimationFrame(tick);
+      } else {
+        path.classList.add('done');
+        resolve();
+      }
+    };
+    requestAnimationFrame(tick);
+  });
+}
+
+function setLadderResultText(text) {
+  const result = document.getElementById('ladderResultText');
+  if (!result) return;
+  result.textContent = text;
+  result.classList.remove('show');
+  void result.offsetWidth;
+  result.classList.add('show');
+}
+
+function setLadderFogVisible(visible, instant = false) {
+  const fog = document.getElementById('ladderFogLayer');
+  if (!fog) return;
+  if (visible) {
+    fog.classList.remove('hidden', 'reveal');
+    return;
+  }
+  if (instant) {
+    fog.classList.add('hidden');
+    fog.classList.remove('reveal');
+    return;
+  }
+  fog.classList.remove('hidden');
+  fog.classList.add('reveal');
+  setTimeout(() => {
+    fog.classList.add('hidden');
+    fog.classList.remove('reveal');
+  }, 640);
+}
+
+function showLadderWinnerOverlay(name) {
+  const overlay = document.getElementById('ladderWinnerOverlay');
+  const nameEl = document.getElementById('ladderWinnerName');
+  if (!overlay || !nameEl) return;
+  if (refreshLadderWinnerTimer) clearTimeout(refreshLadderWinnerTimer);
+  nameEl.textContent = String(name || '');
+  overlay.classList.remove('hidden', 'show');
+  void overlay.offsetWidth;
+  overlay.classList.add('show');
+  refreshLadderWinnerTimer = setTimeout(() => {
+    overlay.classList.add('hidden');
+    overlay.classList.remove('show');
+    refreshLadderWinnerTimer = null;
+  }, LADDER_WINNER_OVERLAY_MS);
+}
+
+function hideLadderWinnerOverlay() {
+  const overlay = document.getElementById('ladderWinnerOverlay');
+  if (!overlay) return;
+  if (refreshLadderWinnerTimer) {
+    clearTimeout(refreshLadderWinnerTimer);
+    refreshLadderWinnerTimer = null;
+  }
+  overlay.classList.add('hidden');
+  overlay.classList.remove('show');
+}
+
+function launchLadderCelebration(layerId = 'ladderConfettiLayer') {
+  const layer = document.getElementById(layerId);
+  if (!layer) return;
+  layer.innerHTML = '';
+  const pieces = ['🎉', '🎊', '✨', '⭐', '💫'];
+  for (let i = 0; i < 36; i += 1) {
+    const piece = document.createElement('span');
+    piece.className = 'ladder-confetti';
+    piece.textContent = pieces[Math.floor(Math.random() * pieces.length)];
+    piece.style.left = `${Math.random() * 100}%`;
+    piece.style.animationDelay = `${(Math.random() * 0.35).toFixed(2)}s`;
+    piece.style.setProperty('--drift', `${Math.round(Math.random() * 120 - 60)}px`);
+    layer.appendChild(piece);
+  }
+  setTimeout(() => {
+    if (layer) layer.innerHTML = '';
+  }, 2100);
+}
+
+function playWinnerFanfare() {
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtx) return;
+  const ctx = new AudioCtx();
+  const start = ctx.currentTime + 0.02;
+  const notes = [523.25, 659.25, 783.99, 1046.5];
+  notes.forEach((freq, idx) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = idx % 2 ? 'triangle' : 'sawtooth';
+    osc.frequency.setValueAtTime(freq, start + idx * 0.14);
+    gain.gain.setValueAtTime(0.0001, start + idx * 0.14);
+    gain.gain.exponentialRampToValueAtTime(0.18, start + idx * 0.14 + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + idx * 0.14 + 0.2);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(start + idx * 0.14);
+    osc.stop(start + idx * 0.14 + 0.22);
+  });
+  setTimeout(() => {
+    if (ctx && typeof ctx.close === 'function') ctx.close();
+  }, 1300);
+}
+
+function escapeSvgText(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function drawRefreshLotto() {
@@ -1499,8 +2337,8 @@ function launchFortuneCelebration(type) {
 
   layer.innerHTML = '';
   const tones = type === '집중'
-    ? ['✨', '📌', '🎯']
-    : (type === '행운' ? ['🎉', '🍀', '💫'] : ['🎊', '🌙', '☕']);
+    ? ['🧠', '📌', '💡']
+    : (type === '행운' ? ['🍀', '✨', '🎁'] : ['🌿', '☕', '🛌']);
 
   for (let i = 0; i < 18; i += 1) {
     const piece = document.createElement('span');
@@ -1521,6 +2359,8 @@ function launchFortuneCelebration(type) {
 
 function resetRefreshModal() {
   refreshLottoDrawToken += 1;
+  refreshClassicLadderDrawToken += 1;
+  refreshLadderDrawToken += 1;
   const cookie = document.getElementById('fortuneCookie');
   const result = document.getElementById('fortuneResult');
   const wrap = document.querySelector('#refreshModal .fortune-wrap');
@@ -1529,6 +2369,14 @@ function resetRefreshModal() {
   const lottoDrawBtn = document.getElementById('lottoDrawBtn');
   const rollingStage = document.getElementById('lottoRollingStage');
   const lottoResult = document.getElementById('lottoResultText');
+  const classicLadderStartBtn = document.getElementById('classicLadderStartBtn');
+  const classicLadderResult = document.getElementById('classicLadderResultText');
+  const classicLadderConfetti = document.getElementById('classicLadderConfettiLayer');
+  const classicLadderInput = document.getElementById('classicLadderNameInput');
+  const ladderStartBtn = document.getElementById('ladderStartBtn');
+  const ladderResult = document.getElementById('ladderResultText');
+  const ladderConfetti = document.getElementById('ladderConfettiLayer');
+  const ladderInput = document.getElementById('ladderNameInput');
   if (cookie) {
     cookie.textContent = '🥠';
     cookie.classList.remove('crack');
@@ -1551,6 +2399,29 @@ function resetRefreshModal() {
     lottoResult.classList.remove('show');
   }
   if (lottoDrawBtn) lottoDrawBtn.disabled = false;
+  refreshClassicLadderNames = [];
+  if (classicLadderInput) classicLadderInput.value = '';
+  if (classicLadderStartBtn) classicLadderStartBtn.disabled = true;
+  if (classicLadderResult) {
+    classicLadderResult.textContent = '참가자를 추가하고 시작해보세요.';
+    classicLadderResult.classList.remove('show');
+  }
+  if (classicLadderConfetti) classicLadderConfetti.innerHTML = '';
+  renderClassicLadderBoard(null);
+  renderClassicLadderNameTags();
+
+  refreshLadderNames = [];
+  if (ladderInput) ladderInput.value = '';
+  if (ladderStartBtn) ladderStartBtn.disabled = true;
+  if (ladderResult) {
+    ladderResult.textContent = '참가자를 추가하고 시작해보세요.';
+    ladderResult.classList.remove('show');
+  }
+  if (ladderConfetti) ladderConfetti.innerHTML = '';
+  setLadderFogVisible(false, true);
+  hideLadderWinnerOverlay();
+  renderLadderBoard(null);
+  renderLadderNameTags();
   setRefreshMode('fortune');
 }
 
@@ -1825,10 +2696,18 @@ function openModal(id) {
     }, 0);
   }
   if (id === 'refreshModal') {
+    ensureRefreshLadderReady();
     setRefreshMode('fortune');
   }
   if (id === 'brandListModal') {
     toggleBrandEditMode(false);
+  }
+  if (id === 'figmaBoardModal') {
+    const editor = document.getElementById('figmaBoardEditor');
+    if (editor) {
+      editor.value = localState.figmaBoardContent || '';
+      setTimeout(() => editor.focus(), 0);
+    }
   }
 }
 
@@ -1841,6 +2720,14 @@ function closeModal(id) {
     localState.brandEditMode = false;
     updateBrandEditToggleButton();
     document.querySelectorAll('.brand-color-popover').forEach((wrap) => wrap.classList.add('hidden'));
+  }
+  if (id === 'gymMoodModal') {
+    localState.gymMoodEditMode = false;
+    updateGymMoodEditToggleButton();
+  }
+  if (id === 'figmaLinkModal') {
+    const frame = document.getElementById('figmaLinkFrame');
+    if (frame) frame.src = 'about:blank';
   }
 }
 
@@ -1895,8 +2782,12 @@ function registerUser() {
 
   const file = avatarInput && avatarInput.files && avatarInput.files[0] ? avatarInput.files[0] : null;
   const fallbackAvatar = generateAvatarDataUrl(name);
-  const onSaved = (docRef, avatarValue) => {
-    const userId = docRef && docRef.id ? docRef.id : '';
+  const getCurrentFirebaseUid = () => (auth.currentUser && auth.currentUser.uid ? auth.currentUser.uid : '');
+  const ensureAnonymousSession = () => {
+    if (getCurrentFirebaseUid()) return Promise.resolve(getCurrentFirebaseUid());
+    return auth.signInAnonymously().then((cred) => (cred && cred.user && cred.user.uid ? cred.user.uid : ''));
+  };
+  const onSaved = (userId, avatarValue) => {
     if (localState.themeMode === 'dark' && userId) {
       localState.currentUser = {
         id: userId,
@@ -1920,29 +2811,70 @@ function registerUser() {
 
   if (file) {
     let savedAvatar = fallbackAvatar;
-    prepareProfileAvatar(file).then((avatar) => {
+    Promise.all([prepareProfileAvatar(file), ensureAnonymousSession()]).then(([avatar, firebaseUid]) => {
+      if (!firebaseUid) throw new Error('missing firebase uid');
       savedAvatar = avatar || fallbackAvatar;
-      return db.collection(COLLECTIONS.users).add({
+      return db.collection(COLLECTIONS.users).doc(firebaseUid).set({
         name,
         pw,
+        firebaseUid,
         avatar: savedAvatar,
-        createdAt: firebase.firestore.FieldValue.serverTimestamp()
-      });
-    }).then((docRef) => onSaved(docRef, savedAvatar)).catch((err) => {
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      }, { merge: true }).then(() => firebaseUid);
+    }).then((userId) => onSaved(userId, savedAvatar)).catch((err) => {
       console.error(err);
       alert(getRegisterErrorMessage(err));
     });
     return;
   }
 
-  db.collection(COLLECTIONS.users).add({
-    name,
-    pw,
-    avatar: fallbackAvatar,
-    createdAt: firebase.firestore.FieldValue.serverTimestamp()
-  }).then((docRef) => onSaved(docRef, fallbackAvatar)).catch((err) => {
+  ensureAnonymousSession().then((firebaseUid) => {
+    if (!firebaseUid) throw new Error('missing firebase uid');
+    return db.collection(COLLECTIONS.users).doc(firebaseUid).set({
+      name,
+      pw,
+      firebaseUid,
+      avatar: fallbackAvatar,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true }).then(() => firebaseUid);
+  }).then((userId) => onSaved(userId, fallbackAvatar)).catch((err) => {
     console.error(err);
     alert(getRegisterErrorMessage(err));
+  });
+}
+
+function syncFirebaseUidForUser(user) {
+  if (!user) return Promise.resolve();
+  const currentUid = auth.currentUser && auth.currentUser.uid ? auth.currentUser.uid : '';
+  if (!currentUid) {
+    return auth.signInAnonymously()
+      .then((cred) => (cred && cred.user && cred.user.uid ? cred.user.uid : ''))
+      .then((uid) => {
+        if (!uid) return;
+        if (uid === user.firebaseUid && user.id === uid) return;
+        return db.collection(COLLECTIONS.users).doc(uid).set({
+          name: user.name || '',
+          pw: user.pw || '',
+          avatar: user.avatar || generateAvatarDataUrl(user.name || 'U'),
+          firebaseUid: uid,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+      })
+      .catch((err) => {
+        console.error('[AUTH] firebaseUid 동기화 실패:', err);
+      });
+  }
+  if (currentUid === user.firebaseUid && user.id === currentUid) return Promise.resolve();
+  return db.collection(COLLECTIONS.users).doc(currentUid).set({
+    name: user.name || '',
+    pw: user.pw || '',
+    avatar: user.avatar || generateAvatarDataUrl(user.name || 'U'),
+    firebaseUid: currentUid,
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+  }, { merge: true }).catch((err) => {
+    console.error('[AUTH] firebaseUid 동기화 실패:', err);
   });
 }
 
@@ -1959,11 +2891,13 @@ function loginUser() {
   localState.currentUser = user;
   localState.pendingUserId = null;
   localState.isAdmin = isAdminName(user.name);
-  persistAuthState();
-  render();
-  closeModal('loginModal');
-  document.getElementById('loginPw').value = '';
-  window.location.reload();
+  syncFirebaseUidForUser(user).finally(() => {
+    persistAuthState();
+    render();
+    closeModal('loginModal');
+    document.getElementById('loginPw').value = '';
+    window.location.reload();
+  });
 }
 
 function logoutUser() {
@@ -1973,6 +2907,19 @@ function logoutUser() {
   persistAuthState();
   closeModal('adminModal');
   render();
+  auth.signOut()
+    .catch((err) => {
+      console.error('[AUTH] signOut 실패:', err);
+    })
+    .finally(() => {
+      auth.signInAnonymously()
+        .then(() => {
+          window.location.reload();
+        })
+        .catch((err) => {
+          console.error('[AUTH] 익명 재로그인 실패:', err);
+        });
+    });
 }
 
 function logoutAdmin() {
@@ -2236,6 +3183,28 @@ function saveSharedMemo() {
   renderSharedView(content);
 }
 
+function saveFigmaBoard() {
+  const editor = document.getElementById('figmaBoardEditor');
+  if (!editor) return;
+  if (localState.figmaBoardSaveTimer) {
+    clearTimeout(localState.figmaBoardSaveTimer);
+    localState.figmaBoardSaveTimer = null;
+  }
+  const content = String(editor.value || '');
+  localState.figmaBoardContent = content;
+  db.collection(COLLECTIONS.config).doc('figmaLinks').set({ content }, { merge: true });
+}
+
+function scheduleFigmaBoardSave() {
+  const editor = document.getElementById('figmaBoardEditor');
+  if (!editor) return;
+  localState.figmaBoardContent = String(editor.value || '');
+  if (localState.figmaBoardSaveTimer) clearTimeout(localState.figmaBoardSaveTimer);
+  localState.figmaBoardSaveTimer = setTimeout(() => {
+    saveFigmaBoard();
+  }, 300);
+}
+
 function scheduleSharedMemoSave() {
   const editor = document.getElementById('archiveStaticMemo');
   if (!editor) return;
@@ -2349,7 +3318,7 @@ function updateBrandColorToggleButton(colorKey, buttonId, showLabel) {
   const btn = document.getElementById(buttonId || 'brandColorToggleBtn');
   const preset = BRAND_COLOR_PRESETS.find((item) => item.key === normalizeBrandColorKey(colorKey)) || BRAND_COLOR_PRESETS[0];
   if (!btn || !preset) return;
-  const title = showLabel ? `선택: ${escapeHtml(preset.label)}` : '색상 선택';
+  const title = showLabel ? `색상: ${escapeHtml(preset.label)}` : '색상 선택';
   btn.innerHTML = `<span class="brand-color-toggle-chip" style="--chip-color:${escapeAttr(preset.light)};"></span><span>${title}</span>`;
 }
 
@@ -2429,6 +3398,10 @@ function getCurrentMonthValue() {
 const sharedMemoEl = document.getElementById('archiveStaticMemo');
 if (sharedMemoEl) {
   sharedMemoEl.addEventListener('input', scheduleSharedMemoSave);
+}
+const figmaBoardEl = document.getElementById('figmaBoardEditor');
+if (figmaBoardEl) {
+  figmaBoardEl.addEventListener('input', scheduleFigmaBoardSave);
 }
 const regNameEl = document.getElementById('regName');
 if (regNameEl) {
@@ -2676,11 +3649,11 @@ function insertEmoji(targetId, emoji) {
 
 const SLASH_EMOJI_TOKEN = '/@';
 const SLASH_EMOJIS = [
-  '😀', '😁', '😆', '🤣', '😂', '🙂', '😊', '😍', '🥰', '😘', '😎', '🤩',
-  '😳', '🥹', '🙈', '🤔', '🫡', '😴', '😵‍💫', '🤯', '😡', '😭', '🥲', '🙏',
-  '👍', '👀', '👏', '🙌', '💪', '🤝', '🧠', '🔥', '✨', '💥', '🎉', '🎯',
-  '✅', '❗', '⚠️', '📌', '📅', '📝', '📎', '📊', '📣', '💡', '💼', '📦',
-  '🧸', '🐰', '🐶', '🐱', '🍀', '🌈', '☕', '🍪', '🍕', '🌙', '⭐'
+  '😀', '😁', '😂', '🤣', '😊', '😍', '😎', '🤔', '😴', '😭', '😡', '🥳',
+  '👍', '👎', '👏', '🙏', '💪', '🔥', '⭐', '✨', '💯', '🎉', '🎊', '🎁',
+  '🍀', '🌈', '☀️', '🌙', '⚡', '💡', '📌', '📎', '🧠', '💬', '✅', '❌',
+  '⏰', '📅', '📝', '📁', '📊', '📈', '📉', '🔒', '🔓', '🔔', '🛠️', '🚀',
+  '☕', '🍪', '🥠', '🌿', '💧', '🎯', '🧩', '🐣', '🐤', '🐥', '🐔'
 ];
 const slashEmojiState = {
   el: null,
@@ -2825,9 +3798,11 @@ function hideSlashEmojiPicker() {
 
 window.addEventListener('keydown', (event) => {
   if (event.key !== 'Escape') return;
-  ['taskCreateModal', 'workerListModal', 'registerModal', 'loginModal', 'adminModal', 'taskEditModal', 'brandListModal', 'refreshModal', 'gymMoodModal'].forEach(closeModal);
+  ['taskCreateModal', 'workerListModal', 'registerModal', 'loginModal', 'adminModal', 'taskEditModal', 'brandListModal', 'refreshModal', 'gymMoodModal', 'figmaBoardModal', 'figmaLinkModal'].forEach(closeModal);
 });
 
 window.handleMemoPaste = handleMemoPaste;
 window.handleSharedPaste = handleSharedPaste;
+
+
 
