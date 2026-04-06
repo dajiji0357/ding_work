@@ -17,149 +17,229 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
 </head>
 <body>
-  <div class="container">
-    <header class="main-header glass">
-      <div class="brand-wrap">
-        <div class="logo-badge">Work manager</div>
-        <button id="themeToggleBtn" class="theme-toggle-btn" type="button" onclick="toggleThemeMode()" aria-label="다크모드 전환" title="다크모드">
-          <span id="themeToggleIcon" aria-hidden="true">🌙</span>
-        </button>
-        <div id="syncStatus" class="status-indicator status-mini">SYNCING...</div>
-      </div>
 
-      <div class="header-right">
-        <div id="loginInfo" class="user-pill"><img class="avatar-xs" src="" alt="avatar"><span>Guest</span></div>
-        <button id="profileBtn" class="btn btn-outline hidden" onclick="openProfileModal()">프로필수정</button>
-        <button id="signupBtn" class="btn btn-outline" onclick="openModal('registerModal')">회원가입</button>
-        <button id="loginBtn" class="btn btn-outline" onclick="openModal('loginModal')">로그인</button>
-        <button id="userLogoutBtn" class="btn btn-outline hidden" onclick="logoutUser()">로그아웃</button>
-      </div>
-    </header>
-    <div id="networkBanner" class="network-banner hidden"></div>
+  <!-- ───────────── SIDEBAR LAYOUT ───────────── -->
+  <div class="app-shell">
 
-    <section class="memo-workspace">
-      <div class="memo-walker-track" aria-hidden="true">
-        <div class="memo-walker">
-          <div class="memo-walker-bubble">오늘은 무슨일로 오셨나요?</div>
-          <img id="memoWalkerImg" class="memo-walker-img" src="assets/hotdog-walker.png" alt="" onerror="this.onerror=null;this.src='data:image/svg+xml;utf8,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22120%22 height=%22120%22 viewBox=%220 0 120 120%22%3E%3Ctext x=%2250%25%22 y=%2258%25%22 text-anchor=%22middle%22 font-size=%2280%22%3E%F0%9F%8C%AD%3C/text%3E%3C/svg%3E';">
-          <div class="memo-mustard-burst" aria-hidden="true"></div>
-        </div>
-      </div>
-      <div class="section-head">
-        <h2>공용 메모 보드</h2>
-        <button class="btn btn-primary" onclick="addNewMemo()">메모 등록</button>
-      </div>
-      <div id="memoGrid" class="memo-grid"></div>
-    </section>
-
-    <section class="command-center glass">
-      <div class="section-head section-head-stack">
-        <h2>작업 도구</h2>
-        <div class="section-tools section-tools-split">
-          <div class="section-tools-left">
-            <button class="btn tool-btn-create" onclick="openModal('taskCreateModal')">새 작업 등록</button>
-            <button class="btn tool-btn-gym" onclick="openGymMoodModal()">월간 짐무드</button>
-            <button class="btn tool-btn-brand" onclick="openModal('brandListModal')">브랜드 리스트</button>
-            <button class="btn tool-btn-figma" onclick="openFigmaBoardPage()">피그마</button>
+    <!-- SIDEBAR -->
+    <aside class="sidebar glass" id="sidebar">
+      <div class="sidebar-inner">
+        <div class="sidebar-top">
+          <div class="brand-row">
+            <span class="brand-dot"></span>
+            <span class="brand-name">Work Manager</span>
           </div>
-          <div class="section-tools-right">
-            <button class="btn tool-btn-refresh" onclick="openModal('refreshModal')">리프레시</button>
-          </div>
-        </div>
-      </div>
-    </section>
 
-    <main class="workspace">
-      <section class="panel glass view-switch-panel">
-        <div class="view-switch-row">
-          <button id="boardViewBtn" class="btn btn-primary" onclick="switchView('board')">보드모드</button>
-          <button id="calendarViewBtn" class="btn btn-outline" onclick="switchView('calendar')">캘린더모드</button>
-          <button id="workerViewBtn" class="btn btn-outline" onclick="switchView('worker')">작업자모드</button>
-        </div>
-      </section>
+          <p class="nav-label">메인</p>
+          <button class="nav-item active" onclick="switchView('board')" id="navBoard">
+            <span class="nav-ico">▦</span><span class="nav-text">보드</span>
+          </button>
+          <button class="nav-item" onclick="switchView('calendar')" id="navCalendar">
+            <span class="nav-ico">◫</span><span class="nav-text">캘린더</span>
+          </button>
+          <button class="nav-item" onclick="switchView('worker')" id="navWorker">
+            <span class="nav-ico">◎</span><span class="nav-text">작업자 현황</span>
+          </button>
 
-      <section class="board glass">
-        <div class="col col-wait" id="업무대기" ondrop="drop(event)" ondragover="allowDrop(event)">
-          <h3>업무대기</h3>
-          <div id="업무대기-list" class="drop-zone"></div>
-        </div>
-        <div class="col col-progress" id="진행중" ondrop="drop(event)" ondragover="allowDrop(event)">
-          <h3>진행중</h3>
-          <div id="진행중-list" class="drop-zone"></div>
-        </div>
-        <div class="col col-confirm" id="컨펌중" ondrop="drop(event)" ondragover="allowDrop(event)">
-          <h3>컨펌중</h3>
-          <div id="컨펌중-list" class="drop-zone"></div>
-        </div>
-        <div class="col col-edit" id="수정중" ondrop="drop(event)" ondragover="allowDrop(event)">
-          <h3>수정중</h3>
-          <div id="수정중-list" class="drop-zone"></div>
-        </div>
-        <div class="col col-done" id="작업완료" ondrop="drop(event)" ondragover="allowDrop(event)">
-          <h3>작업완료</h3>
-          <div id="작업완료-list" class="drop-zone"></div>
-        </div>
-      </section>
+          <div class="nav-sep"></div>
+          <p class="nav-label">도구</p>
+          <button class="nav-item" onclick="openModal('taskCreateModal')">
+            <span class="nav-ico">＋</span><span class="nav-text">새 작업 등록</span>
+          </button>
+          <button class="nav-item" onclick="openModal('brandListModal')">
+            <span class="nav-ico">☰</span><span class="nav-text">브랜드 리스트</span>
+          </button>
+          <button class="nav-item" onclick="openFigmaBoardPage()">
+            <span class="nav-ico">◈</span><span class="nav-text">피그마</span>
+          </button>
+          <button class="nav-item" onclick="openGymMoodModal()">
+            <span class="nav-ico">♟</span><span class="nav-text">월간 짐무드</span>
+          </button>
+          <button class="nav-item" onclick="openModal('refreshModal')">
+            <span class="nav-ico">✦</span><span class="nav-text">리프레시</span>
+          </button>
 
-      <section id="calendarView" class="panel glass calendar-panel hidden">
-        <div class="calendar-current-nav">
-          <button class="calendar-nav-btn" type="button" onclick="moveCalendarMonth(-1)">&lt;</button>
-          <div id="calendarCurrentLabel" class="calendar-current-top"></div>
-          <button class="calendar-nav-btn" type="button" onclick="moveCalendarMonth(1)">&gt;</button>
+          <div class="nav-sep"></div>
+          <p class="nav-label">아카이브</p>
+          <a class="nav-item" href="completed.html" target="_blank" rel="noopener noreferrer">
+            <span class="nav-ico">✓</span><span class="nav-text">작업완료</span>
+          </a>
+          <a class="nav-item" href="hold.html" target="_blank" rel="noopener noreferrer">
+            <span class="nav-ico">⏸</span><span class="nav-text">보류중</span>
+          </a>
         </div>
-        <div class="section-head">
-          <h2>업무현황 캘린더</h2>
-          <div class="calendar-head-right">
-            <input id="calendarMonth" type="month" class="pill-input calendar-month" onchange="setCalendarMonth(this.value)">
+
+        <div class="sidebar-bot">
+          <div id="loginInfo" class="user-pill"><img class="avatar-xs" src="" alt="avatar"><span>Guest</span></div>
+          <div class="sidebar-auth-row">
+            <button id="profileBtn" class="btn btn-outline small hidden" onclick="openProfileModal()">프로필</button>
+            <button id="signupBtn" class="btn btn-outline small" onclick="openModal('registerModal')">가입</button>
+            <button id="loginBtn" class="btn btn-outline small" onclick="openModal('loginModal')">로그인</button>
+            <button id="userLogoutBtn" class="btn btn-outline small hidden" onclick="logoutUser()">로그아웃</button>
           </div>
         </div>
-        <div id="calendarGrid" class="calendar-grid"></div>
-      </section>
+      </div>
+    </aside>
 
-      <section id="workerView" class="panel glass worker-panel hidden">
-        <div class="section-head">
-          <h2>작업자 업무현황</h2>
-        </div>
-        <div id="workerModeGrid" class="worker-mode-grid"></div>
-      </section>
+    <!-- MAIN AREA -->
+    <div class="main-area">
 
-      <section class="panel glass shared-note-panel">
-        <div class="section-head">
-          <h2>기타 공용 메모</h2>
+      <!-- TOPBAR -->
+      <header class="topbar glass">
+        <div class="topbar-left">
+          <button class="sidebar-toggle-btn" onclick="toggleSidebar()" aria-label="사이드바 열기/닫기">☰</button>
+          <span class="topbar-title" id="topbarTitle">업무 보드</span>
+          <div id="networkBanner" class="network-banner hidden"></div>
         </div>
-        <div class="note-shell shared-note-shell">
-          <textarea id="archiveStaticMemo" class="note-editor note-editor-pane" onpaste="handleSharedPaste(event)" placeholder="메모 내용을 입력해주세요"></textarea>
-          <div id="sharedView" class="note-view-pane note-live-preview"></div>
+        <div class="topbar-right">
+          <div id="syncStatus" class="status-indicator status-mini status-cache">SYNCING...</div>
+          <button id="themeToggleBtn" class="theme-toggle-btn" type="button" onclick="toggleThemeMode()" aria-label="다크모드 전환" title="다크모드">
+            <span id="themeToggleIcon" aria-hidden="true">🌙</span>
+          </button>
+          <div id="adminBadge" class="badge-pill hidden">ADMIN</div>
+          <button id="adminBtn" class="btn btn-action admin-fab-btn" onclick="handleAdminAction()">Admin</button>
+          <button id="adminLogoutBtn" class="btn btn-outline admin-fab-btn hidden" onclick="logoutAdmin()">Admin 로그아웃</button>
         </div>
-      </section>
+      </header>
 
-      <section class="panel glass archive-panel">
-        <div class="section-head">
-          <h2>작업완료 / 보류중</h2>
-        </div>
-        <div class="archive-split-board">
-          <article class="archive-split-col">
-            <div class="archive-col-head">
+      <!-- CONTENT -->
+      <div class="content-scroll">
+
+        <!-- STATUS STRIP -->
+        <section class="stat-strip">
+          <div class="stat-card" id="statWait" onclick="switchView('board')">
+            <div class="stat-label"><span class="stat-dot" style="background:#60708d"></span>업무대기</div>
+            <div class="stat-num" id="statNumWait">0</div>
+          </div>
+          <div class="stat-card" id="statProgress" onclick="switchView('board')">
+            <div class="stat-label"><span class="stat-dot" style="background:#1f78ff"></span>진행중</div>
+            <div class="stat-num" id="statNumProgress">0</div>
+          </div>
+          <div class="stat-card" id="statConfirm" onclick="switchView('board')">
+            <div class="stat-label"><span class="stat-dot" style="background:#8c56ff"></span>컨펌중</div>
+            <div class="stat-num" id="statNumConfirm">0</div>
+          </div>
+          <div class="stat-card" id="statEdit" onclick="switchView('board')">
+            <div class="stat-label"><span class="stat-dot" style="background:#ff8a2a"></span>수정중</div>
+            <div class="stat-num" id="statNumEdit">0</div>
+          </div>
+          <div class="stat-card" id="statDone" onclick="switchView('board')">
+            <div class="stat-label"><span class="stat-dot" style="background:#8d95a8"></span>작업완료</div>
+            <div class="stat-num" id="statNumDone">0</div>
+          </div>
+        </section>
+
+        <!-- MEMO WORKSPACE -->
+        <section class="memo-workspace glass">
+          <div class="memo-walker-track" aria-hidden="true">
+            <div class="memo-walker">
+              <div class="memo-walker-bubble">오늘은 무슨일로 오셨나요?</div>
+              <img id="memoWalkerImg" class="memo-walker-img" src="assets/hotdog-walker.png" alt=""
+                onerror="this.onerror=null;this.src='data:image/svg+xml;utf8,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22120%22 height=%22120%22 viewBox=%220 0 120 120%22%3E%3Ctext x=%2250%25%22 y=%2258%25%22 text-anchor=%22middle%22 font-size=%2280%22%3E%F0%9F%8C%AD%3C/text%3E%3C/svg%3E';">
+              <div class="memo-mustard-burst" aria-hidden="true"></div>
+            </div>
+          </div>
+          <div class="section-head">
+            <h2>공용 메모 보드</h2>
+            <button class="btn btn-primary" onclick="addNewMemo()">메모 등록</button>
+          </div>
+          <div id="memoGrid" class="memo-grid"></div>
+        </section>
+
+        <!-- BOARD / CALENDAR / WORKER VIEWS -->
+        <div class="workspace">
+
+          <!-- VIEW SWITCH -->
+          <section class="panel glass view-switch-panel">
+            <div class="view-switch-row">
+              <button id="boardViewBtn" class="btn btn-primary" onclick="switchView('board')">보드모드</button>
+              <button id="calendarViewBtn" class="btn btn-outline" onclick="switchView('calendar')">캘린더모드</button>
+              <button id="workerViewBtn" class="btn btn-outline" onclick="switchView('worker')">작업자모드</button>
+            </div>
+          </section>
+
+          <!-- BOARD -->
+          <section class="board glass">
+            <div class="col col-wait" id="업무대기" ondrop="drop(event)" ondragover="allowDrop(event)">
+              <h3>업무대기</h3>
+              <div id="업무대기-list" class="drop-zone"></div>
+            </div>
+            <div class="col col-progress" id="진행중" ondrop="drop(event)" ondragover="allowDrop(event)">
+              <h3>진행중</h3>
+              <div id="진행중-list" class="drop-zone"></div>
+            </div>
+            <div class="col col-confirm" id="컨펌중" ondrop="drop(event)" ondragover="allowDrop(event)">
+              <h3>컨펌중</h3>
+              <div id="컨펌중-list" class="drop-zone"></div>
+            </div>
+            <div class="col col-edit" id="수정중" ondrop="drop(event)" ondragover="allowDrop(event)">
+              <h3>수정중</h3>
+              <div id="수정중-list" class="drop-zone"></div>
+            </div>
+            <div class="col col-done" id="작업완료" ondrop="drop(event)" ondragover="allowDrop(event)">
               <h3>작업완료</h3>
-              <a class="btn btn-route done-route" href="completed.html" target="_blank" rel="noopener noreferrer">작업완료 전체보기</a>
+              <div id="작업완료-list" class="drop-zone"></div>
             </div>
-            <div id="doneArchiveTaskList" class="archive-grid"></div>
-          </article>
-          <article class="archive-split-col">
-            <div class="archive-col-head">
-              <h3>보류중</h3>
-              <a class="btn btn-route hold-route-gray" href="hold.html" target="_blank" rel="noopener noreferrer">보류중 작업 전체보기</a>
+          </section>
+
+          <!-- CALENDAR -->
+          <section id="calendarView" class="panel glass calendar-panel hidden">
+            <div class="calendar-current-nav">
+              <button class="calendar-nav-btn" type="button" onclick="moveCalendarMonth(-1)">&lt;</button>
+              <div id="calendarCurrentLabel" class="calendar-current-top"></div>
+              <button class="calendar-nav-btn" type="button" onclick="moveCalendarMonth(1)">&gt;</button>
             </div>
-            <div id="holdArchiveTaskList" class="archive-grid"></div>
-          </article>
-        </div>
-      </section>
-    </main>
-  </div>
-  <div class="admin-fab-wrap">
-    <button id="adminBtn" class="btn btn-action admin-fab-btn" onclick="handleAdminAction()">Admin</button>
-    <button id="adminLogoutBtn" class="btn btn-outline admin-fab-btn hidden" onclick="logoutAdmin()">Admin 로그아웃</button>
-  </div>
+            <div class="section-head">
+              <h2>업무현황 캘린더</h2>
+              <div class="calendar-head-right">
+                <input id="calendarMonth" type="month" class="pill-input calendar-month" onchange="setCalendarMonth(this.value)">
+              </div>
+            </div>
+            <div id="calendarGrid" class="calendar-grid"></div>
+          </section>
+
+          <!-- WORKER -->
+          <section id="workerView" class="panel glass worker-panel hidden">
+            <div class="section-head"><h2>작업자 업무현황</h2></div>
+            <div id="workerModeGrid" class="worker-mode-grid"></div>
+          </section>
+
+          <!-- SHARED MEMO -->
+          <section class="panel glass shared-note-panel">
+            <div class="section-head"><h2>기타 공용 메모</h2></div>
+            <div class="note-shell shared-note-shell">
+              <textarea id="archiveStaticMemo" class="note-editor note-editor-pane" onpaste="handleSharedPaste(event)" placeholder="메모 내용을 입력해주세요"></textarea>
+              <div id="sharedView" class="note-view-pane note-live-preview"></div>
+            </div>
+          </section>
+
+          <!-- ARCHIVE STRIP -->
+          <section class="panel glass archive-panel">
+            <div class="section-head"><h2>작업완료 / 보류중</h2></div>
+            <div class="archive-split-board">
+              <article class="archive-split-col">
+                <div class="archive-col-head">
+                  <h3>작업완료</h3>
+                  <a class="btn btn-route done-route" href="completed.html" target="_blank" rel="noopener noreferrer">전체보기</a>
+                </div>
+                <div id="doneArchiveTaskList" class="archive-grid"></div>
+              </article>
+              <article class="archive-split-col">
+                <div class="archive-col-head">
+                  <h3>보류중</h3>
+                  <a class="btn btn-route hold-route-gray" href="hold.html" target="_blank" rel="noopener noreferrer">전체보기</a>
+                </div>
+                <div id="holdArchiveTaskList" class="archive-grid"></div>
+              </article>
+            </div>
+          </section>
+
+        </div><!-- /workspace -->
+      </div><!-- /content-scroll -->
+    </div><!-- /main-area -->
+  </div><!-- /app-shell -->
+
+  <!-- ═══════════ MODALS ═══════════ -->
 
   <div id="taskCreateModal" class="modal">
     <div class="modal-content wide">
@@ -333,9 +413,7 @@
     <div class="modal-content">
       <button class="close-btn" onclick="closeModal('brandListModal')">&times;</button>
       <button id="brandEditToggleBtn" type="button" class="btn btn-outline small brand-edit-floating" onclick="toggleBrandEditMode()">수정하기</button>
-      <div class="brand-modal-head">
-        <h3>브랜드 리스트</h3>
-      </div>
+      <div class="brand-modal-head"><h3>브랜드 리스트</h3></div>
       <div class="brand-add-guide">브랜드 추가 / 색상 지정</div>
       <div class="inline-brand-add">
         <div class="brand-add-top">
@@ -361,38 +439,25 @@
       <h3>리프레시 랜덤박스</h3>
       <div class="refresh-mode-tabs">
         <button id="refreshModeFortuneBtn" class="refresh-mode-btn active" type="button" onclick="setRefreshMode('fortune')">
-          <span class="refresh-mode-ico">🥠</span>
-          <span>포춘쿠키</span>
+          <span class="refresh-mode-ico">🥠</span><span>포춘쿠키</span>
         </button>
         <button id="refreshModeLottoBtn" class="refresh-mode-btn" type="button" onclick="setRefreshMode('lotto')">
-          <span class="refresh-mode-ico">🎱</span>
-          <span>로또번호</span>
+          <span class="refresh-mode-ico">🎱</span><span>로또번호</span>
         </button>
         <button id="refreshModeLadderBtn" class="refresh-mode-btn" type="button" onclick="setRefreshMode('ladder')">
-          <span class="refresh-mode-ico">🪜</span>
-          <span>사다리타기</span>
+          <span class="refresh-mode-ico">🪜</span><span>사다리타기</span>
         </button>
         <button id="refreshModeMazeBtn" class="refresh-mode-btn" type="button" onclick="setRefreshMode('maze')">
-          <span class="refresh-mode-ico">🐾</span>
-          <span>미로내기</span>
+          <span class="refresh-mode-ico">🐾</span><span>미로내기</span>
         </button>
       </div>
       <div id="refreshFortunePanel" class="refresh-panel">
         <div class="fortune-wrap">
           <div id="fortuneCookie" class="fortune-cookie">🥠</div>
           <div class="fortune-types">
-            <button class="fortune-type-btn" onclick="crackFortuneCookie('집중')">
-              <span class="fortune-type-icon">🥠</span>
-              <span>집중 쿠키</span>
-            </button>
-            <button class="fortune-type-btn" onclick="crackFortuneCookie('행운')">
-              <span class="fortune-type-icon">🍪</span>
-              <span>행운 쿠키</span>
-            </button>
-            <button class="fortune-type-btn" onclick="crackFortuneCookie('휴식')">
-              <span class="fortune-type-icon">🥮</span>
-              <span>휴식 쿠키</span>
-            </button>
+            <button class="fortune-type-btn" onclick="crackFortuneCookie('집중')"><span class="fortune-type-icon">🥠</span><span>집중 쿠키</span></button>
+            <button class="fortune-type-btn" onclick="crackFortuneCookie('행운')"><span class="fortune-type-icon">🍪</span><span>행운 쿠키</span></button>
+            <button class="fortune-type-btn" onclick="crackFortuneCookie('휴식')"><span class="fortune-type-icon">🥮</span><span>휴식 쿠키</span></button>
           </div>
           <button class="btn btn-primary full" onclick="crackFortuneCookie()">랜덤으로 깨기</button>
           <div id="fortuneResult" class="fortune-result">오늘의 운세를 확인해보세요.</div>
@@ -400,60 +465,13 @@
       </div>
       <div id="refreshLottoPanel" class="refresh-panel hidden">
         <div class="lotto-wrap">
-          <div id="lottoRollingStage" class="lotto-rolling-stage">
-            <div class="lotto-rolling-hint">추첨기 가동 준비</div>
-          </div>
+          <div id="lottoRollingStage" class="lotto-rolling-stage"><div class="lotto-rolling-hint">추첨기 가동 준비</div></div>
           <div id="lottoLines" class="lotto-lines">
-            <div class="lotto-line">
-              <span class="lotto-line-label">A</span>
-              <div class="lotto-line-balls">
-                <div class="lotto-main-balls">
-                  <span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span>
-                </div>
-                <span class="lotto-plus-mini">+</span>
-                <div class="lotto-bonus-ball"><span class="lotto-ball empty">?</span></div>
-              </div>
-            </div>
-            <div class="lotto-line">
-              <span class="lotto-line-label">B</span>
-              <div class="lotto-line-balls">
-                <div class="lotto-main-balls">
-                  <span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span>
-                </div>
-                <span class="lotto-plus-mini">+</span>
-                <div class="lotto-bonus-ball"><span class="lotto-ball empty">?</span></div>
-              </div>
-            </div>
-            <div class="lotto-line">
-              <span class="lotto-line-label">C</span>
-              <div class="lotto-line-balls">
-                <div class="lotto-main-balls">
-                  <span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span>
-                </div>
-                <span class="lotto-plus-mini">+</span>
-                <div class="lotto-bonus-ball"><span class="lotto-ball empty">?</span></div>
-              </div>
-            </div>
-            <div class="lotto-line">
-              <span class="lotto-line-label">D</span>
-              <div class="lotto-line-balls">
-                <div class="lotto-main-balls">
-                  <span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span>
-                </div>
-                <span class="lotto-plus-mini">+</span>
-                <div class="lotto-bonus-ball"><span class="lotto-ball empty">?</span></div>
-              </div>
-            </div>
-            <div class="lotto-line">
-              <span class="lotto-line-label">E</span>
-              <div class="lotto-line-balls">
-                <div class="lotto-main-balls">
-                  <span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span>
-                </div>
-                <span class="lotto-plus-mini">+</span>
-                <div class="lotto-bonus-ball"><span class="lotto-ball empty">?</span></div>
-              </div>
-            </div>
+            <div class="lotto-line"><span class="lotto-line-label">A</span><div class="lotto-line-balls"><div class="lotto-main-balls"><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span></div><span class="lotto-plus-mini">+</span><div class="lotto-bonus-ball"><span class="lotto-ball empty">?</span></div></div></div>
+            <div class="lotto-line"><span class="lotto-line-label">B</span><div class="lotto-line-balls"><div class="lotto-main-balls"><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span></div><span class="lotto-plus-mini">+</span><div class="lotto-bonus-ball"><span class="lotto-ball empty">?</span></div></div></div>
+            <div class="lotto-line"><span class="lotto-line-label">C</span><div class="lotto-line-balls"><div class="lotto-main-balls"><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span></div><span class="lotto-plus-mini">+</span><div class="lotto-bonus-ball"><span class="lotto-ball empty">?</span></div></div></div>
+            <div class="lotto-line"><span class="lotto-line-label">D</span><div class="lotto-line-balls"><div class="lotto-main-balls"><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span></div><span class="lotto-plus-mini">+</span><div class="lotto-bonus-ball"><span class="lotto-ball empty">?</span></div></div></div>
+            <div class="lotto-line"><span class="lotto-line-label">E</span><div class="lotto-line-balls"><div class="lotto-main-balls"><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span><span class="lotto-ball empty">?</span></div><span class="lotto-plus-mini">+</span><div class="lotto-bonus-ball"><span class="lotto-ball empty">?</span></div></div></div>
           </div>
           <button id="lottoDrawBtn" class="btn btn-primary full" onclick="drawRefreshLotto()">번호 5줄 뽑기</button>
           <div id="lottoResultText" class="fortune-result">번호 5줄 뽑기를 눌러주세요.</div>
@@ -476,7 +494,6 @@
           <div id="classicLadderResultText" class="fortune-result">참가자를 추가하고 시작해보세요.</div>
         </div>
       </div>
-
       <div id="refreshLadderPanel" class="refresh-panel hidden">
         <div class="ladder-wrap">
           <div class="ladder-input-row">
@@ -557,5 +574,61 @@
 
   <script src="firebase-config.js"></script>
   <script src="app.js"></script>
+  <script>
+    function toggleSidebar() {
+      const shell = document.querySelector('.app-shell');
+      if (shell) shell.classList.toggle('sidebar-collapsed');
+    }
+
+    (function setupLayoutHooks() {
+      const originalSwitchView = window.switchView;
+      if (typeof originalSwitchView === 'function') {
+        window.switchView = function (mode) {
+          originalSwitchView(mode);
+          const titles = { board: '업무 보드', calendar: '캘린더', worker: '작업자 현황' };
+          const titleEl = document.getElementById('topbarTitle');
+          if (titleEl) titleEl.textContent = titles[mode] || '업무 보드';
+
+          ['navBoard', 'navCalendar', 'navWorker'].forEach((id) => {
+            const el = document.getElementById(id);
+            if (el) el.classList.remove('active');
+          });
+          const activeMap = { board: 'navBoard', calendar: 'navCalendar', worker: 'navWorker' };
+          const activeEl = document.getElementById(activeMap[mode] || 'navBoard');
+          if (activeEl) activeEl.classList.add('active');
+        };
+      }
+
+      function updateStatCards() {
+        if (typeof localState === 'undefined') return;
+        const counts = { '업무대기': 0, '진행중': 0, '컨펌중': 0, '수정중': 0, '작업완료': 0 };
+        (localState.tasks || []).forEach((task) => {
+          if (Object.prototype.hasOwnProperty.call(counts, task.status)) {
+            counts[task.status] += 1;
+          }
+        });
+        const idMap = {
+          '업무대기': 'statNumWait',
+          '진행중': 'statNumProgress',
+          '컨펌중': 'statNumConfirm',
+          '수정중': 'statNumEdit',
+          '작업완료': 'statNumDone'
+        };
+        Object.keys(idMap).forEach((status) => {
+          const el = document.getElementById(idMap[status]);
+          if (el) el.textContent = String(counts[status]);
+        });
+      }
+
+      const originalRender = window.render;
+      if (typeof originalRender === 'function') {
+        window.render = function () {
+          originalRender();
+          updateStatCards();
+        };
+      }
+      updateStatCards();
+    }());
+  </script>
 </body>
 </html>
