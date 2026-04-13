@@ -69,15 +69,6 @@
           </a>
         </div>
 
-        <div class="sidebar-bot">
-          <div id="loginInfo" class="user-pill"><img class="avatar-xs" src="" alt="avatar"><span>Guest</span></div>
-          <div class="sidebar-auth-row">
-            <button id="profileBtn" class="btn btn-outline small hidden" onclick="openProfileModal()">프로필</button>
-            <button id="signupBtn" class="btn btn-outline small" onclick="openModal('registerModal')">가입</button>
-            <button id="loginBtn" class="btn btn-outline small" onclick="openModal('loginModal')">로그인</button>
-            <button id="userLogoutBtn" class="btn btn-outline small hidden" onclick="logoutUser()">로그아웃</button>
-          </div>
-        </div>
       </div>
     </aside>
 
@@ -92,6 +83,13 @@
           <div id="networkBanner" class="network-banner hidden"></div>
         </div>
         <div class="topbar-right">
+          <div id="loginInfo" class="user-pill topbar-user-pill"><img class="avatar-xs" src="" alt="avatar"><span>Guest</span></div>
+          <div class="topbar-auth-row">
+            <button id="profileBtn" class="btn btn-outline small hidden" onclick="openProfileModal()">프로필</button>
+            <button id="signupBtn" class="btn btn-outline small" onclick="openModal('registerModal')">가입</button>
+            <button id="loginBtn" class="btn btn-outline small" onclick="openModal('loginModal')">로그인</button>
+            <button id="userLogoutBtn" class="btn btn-outline small hidden" onclick="logoutUser()">로그아웃</button>
+          </div>
           <div id="syncStatus" class="status-indicator status-mini status-cache">SYNCING...</div>
           <button id="themeToggleBtn" class="theme-toggle-btn" type="button" onclick="toggleThemeMode()" aria-label="다크모드 전환" title="다크모드">
             <span id="themeToggleIcon" aria-hidden="true">🌙</span>
@@ -152,6 +150,8 @@
           <!-- VIEW SWITCH -->
           <section class="panel glass view-switch-panel">
             <div class="view-switch-row">
+              <button class="btn tool-btn-create view-new-task-btn" onclick="openModal('taskCreateModal')">＋ 새 작업 등록</button>
+              <div class="view-switch-divider"></div>
               <button id="boardViewBtn" class="btn btn-primary" onclick="switchView('board')">보드모드</button>
               <button id="calendarViewBtn" class="btn btn-outline" onclick="switchView('calendar')">캘린더모드</button>
               <button id="workerViewBtn" class="btn btn-outline" onclick="switchView('worker')">작업자모드</button>
@@ -206,10 +206,25 @@
 
           <!-- SHARED MEMO -->
           <section class="panel glass shared-note-panel">
-            <div class="section-head"><h2>기타 공용 메모</h2></div>
-            <div class="note-shell shared-note-shell">
-              <textarea id="archiveStaticMemo" class="note-editor note-editor-pane" onpaste="handleSharedPaste(event)" placeholder="메모 내용을 입력해주세요"></textarea>
-              <div id="sharedView" class="note-view-pane note-live-preview"></div>
+            <div class="section-head">
+              <h2>공용메모</h2>
+              <div class="shared-memo-actions">
+                <button type="button" class="btn btn-outline small" onclick="reloadSharedMemoFrame()">다시 연결</button>
+                <a class="btn btn-outline small" href="memo.html" target="_blank" rel="noopener noreferrer">새창 열기</a>
+              </div>
+            </div>
+            <div class="shared-notion-wrap">
+              <iframe
+                id="sharedNotionMemoFrame"
+                class="shared-notion-frame"
+                src="memo.html"
+                title="공용메모"
+                loading="lazy"
+                onload="handleSharedMemoFrameLoad()"
+              ></iframe>
+            </div>
+            <div id="sharedMemoFrameHint" class="shared-memo-hint hidden">
+              공용메모 연결이 늦어지고 있어요. `다시 연결`을 누르거나 `새창 열기`로 확인해보세요.
             </div>
           </section>
 
@@ -247,7 +262,12 @@
       <h3>새 작업 등록</h3>
       <input type="text" id="taskName" class="task-input" placeholder="업무 제목을 입력하세요" maxlength="150">
       <textarea id="taskDesc" class="task-input task-desc-input" placeholder="상세 내용을 입력하세요" maxlength="500"></textarea>
-      <textarea id="taskBackupLocation" class="task-input task-desc-input" placeholder="백업위치 (선택)" maxlength="2000"></textarea>
+      <div class="modal-inline-optional">
+        <button type="button" class="btn btn-outline small modal-inline-toggle" onclick="toggleInlineOptional('taskBackupOptional')">백업위치 입력</button>
+        <div id="taskBackupOptional" class="modal-inline-expand hidden">
+          <input type="text" id="taskBackupLocation" class="task-input" placeholder="백업위치 (선택)" maxlength="2000">
+        </div>
+      </div>
       <div class="input-row">
         <div class="field">
           <label for="taskUserSelect1">담당자 1</label>
@@ -375,8 +395,13 @@
       <input type="text" id="editTaskName" class="pill-input" placeholder="작업명">
       <label class="modal-label" for="editTaskDesc">상세내용</label>
       <textarea id="editTaskDesc" class="pill-input task-desc-input" placeholder="상세 내용을 입력하세요" maxlength="500"></textarea>
-      <label class="modal-label" for="editTaskBackupLocation">백업위치 (선택)</label>
-      <textarea id="editTaskBackupLocation" class="pill-input task-desc-input" placeholder="백업위치를 입력하세요" maxlength="2000"></textarea>
+      <div class="modal-inline-optional">
+        <button type="button" class="btn btn-outline small modal-inline-toggle" onclick="toggleInlineOptional('editTaskBackupOptional')">백업위치 입력</button>
+        <div id="editTaskBackupOptional" class="modal-inline-expand hidden">
+          <label class="modal-label" for="editTaskBackupLocation">백업위치 (선택)</label>
+          <input id="editTaskBackupLocation" class="pill-input" placeholder="백업위치를 입력하세요" maxlength="2000">
+        </div>
+      </div>
       <div class="modal-half-grid">
         <div class="modal-field">
           <label class="modal-label" for="editTaskUserSelect1">담당자 1</label>
@@ -427,7 +452,12 @@
           </div>
           <button class="btn btn-primary" onclick="addBrand()">추가</button>
         </div>
-        <textarea id="brandBackupInput" class="pill-input task-desc-input brand-backup-input" placeholder="백업위치 (선택)" maxlength="2000"></textarea>
+        <div class="modal-inline-optional">
+          <button type="button" class="btn btn-outline small modal-inline-toggle" onclick="toggleInlineOptional('brandBackupOptional')">백업위치 입력</button>
+          <div id="brandBackupOptional" class="modal-inline-expand hidden">
+            <input id="brandBackupInput" class="pill-input brand-backup-input" placeholder="백업위치 (선택)" maxlength="2000">
+          </div>
+        </div>
       </div>
       <div id="brandManageList" class="admin-list"></div>
     </div>
@@ -488,6 +518,21 @@
           <div id="classicLadderHint" class="ladder-hint">최소 2명부터 시작할 수 있어요.</div>
           <div class="ladder-board">
             <svg id="classicLadderSvg" class="ladder-svg" viewBox="0 0 800 520" aria-label="사다리 게임판"></svg>
+            <div id="classicLadderFogLayer" class="ladder-fog-layer hidden" aria-hidden="true">
+              <div class="ladder-cover-card">
+                <div class="ladder-cover-title">결과 봉인중</div>
+                <div class="ladder-cover-sub">두구두구두구...</div>
+                <div class="ladder-cover-playground">
+                  <span class="ladder-cover-runner">
+                    <img class="ladder-cover-runner-img" src="assets/hotdog-walker.png" alt=""
+                      onerror="this.onerror=null;this.src='data:image/svg+xml;utf8,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2296%22 height=%2296%22 viewBox=%220 0 96 96%22%3E%3Ctext x=%2250%25%22 y=%2258%25%22 text-anchor=%22middle%22 font-size=%2264%22%3E%F0%9F%8C%AD%3C/text%3E%3C/svg%3E';">
+                  </span>
+                </div>
+              </div>
+            </div>
+            <div id="classicLadderWinnerOverlay" class="ladder-winner-overlay hidden" aria-live="polite">
+              <div id="classicLadderWinnerLine" class="ladder-winner-line"></div>
+            </div>
             <div id="classicLadderConfettiLayer" class="ladder-confetti-layer" aria-hidden="true"></div>
           </div>
           <button id="classicLadderStartBtn" class="btn btn-primary full" type="button" onclick="startClassicLadderDraw()">사다리 추첨 시작</button>
@@ -503,22 +548,22 @@
           </div>
           <div id="ladderNameTags" class="ladder-name-tags"></div>
           <div id="ladderHint" class="ladder-hint">최소 2명부터 시작할 수 있어요.</div>
-          <div class="ladder-board">
+          <div class="ladder-board maze-board">
             <svg id="ladderSvg" class="ladder-svg" viewBox="0 0 800 520" aria-label="사다리 게임판"></svg>
             <div id="ladderFogLayer" class="ladder-fog-layer hidden" aria-hidden="true">
               <div class="ladder-cover-card">
                 <div class="ladder-cover-title">결과 봉인중</div>
-                <div class="ladder-cover-sub">두두타즈가 열심히 미로 탈출중...</div>
+                <div class="ladder-cover-sub">두구두구두구...</div>
                 <div class="ladder-cover-playground">
-                  <span class="ladder-cover-char walker">🌭</span>
-                  <span class="ladder-cover-char buddy">🐶</span>
+                  <span class="ladder-cover-runner">
+                    <img class="ladder-cover-runner-img" src="assets/hotdog-walker.png" alt=""
+                      onerror="this.onerror=null;this.src='data:image/svg+xml;utf8,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2296%22 height=%2296%22 viewBox=%220 0 96 96%22%3E%3Ctext x=%2250%25%22 y=%2258%25%22 text-anchor=%22middle%22 font-size=%2264%22%3E%F0%9F%8C%AD%3C/text%3E%3C/svg%3E';">
+                  </span>
                 </div>
               </div>
             </div>
             <div id="ladderWinnerOverlay" class="ladder-winner-overlay hidden" aria-live="polite">
-              <div class="ladder-winner-title">축하합니다!</div>
-              <div id="ladderWinnerName" class="ladder-winner-name"></div>
-              <div class="ladder-winner-sub">당첨!</div>
+              <div id="ladderWinnerLine" class="ladder-winner-line"></div>
             </div>
             <div id="ladderConfettiLayer" class="ladder-confetti-layer" aria-hidden="true"></div>
           </div>
@@ -566,7 +611,7 @@
       <button class="close-btn" onclick="closeModal('figmaLinkModal')">&times;</button>
       <h3 id="figmaLinkModalTitle">피그마 보기</h3>
       <div class="figma-link-toolbar">
-        <a id="figmaLinkOpenHere" class="btn btn-outline" href="#" target="_self" rel="noopener">현재 탭에서 열기</a>
+        <a id="figmaLinkOpenHere" class="btn figma-open-here-btn" href="#" target="_self" rel="noopener">현재 창에서 보기</a>
       </div>
       <iframe id="figmaLinkFrame" class="figma-link-frame" src="about:blank" title="피그마 링크"></iframe>
     </div>
@@ -575,60 +620,54 @@
   <script src="firebase-config.js"></script>
   <script src="app.js"></script>
   <script>
+    /* ── 사이드바 토글 ── */
     function toggleSidebar() {
-      const shell = document.querySelector('.app-shell');
-      if (shell) shell.classList.toggle('sidebar-collapsed');
+      document.querySelector('.app-shell').classList.toggle('sidebar-collapsed');
     }
 
-    (function setupLayoutHooks() {
-      const originalSwitchView = window.switchView;
-      if (typeof originalSwitchView === 'function') {
-        window.switchView = function (mode) {
-          originalSwitchView(mode);
-          const titles = { board: '업무 보드', calendar: '캘린더', worker: '작업자 현황' };
-          const titleEl = document.getElementById('topbarTitle');
-          if (titleEl) titleEl.textContent = titles[mode] || '업무 보드';
+    /* ── 뷰 전환 시 topbar 타이틀 + nav 활성 업데이트 ── */
+    const _origSwitchView = typeof window.switchView === 'function'
+      ? window.switchView.bind(window)
+      : null;
+    window.switchView = function(mode) {
+      if (_origSwitchView) _origSwitchView(mode);
+      const titles = { board: '업무 보드', calendar: '캘린더', worker: '작업자 현황' };
+      const el = document.getElementById('topbarTitle');
+      if (el) el.textContent = titles[mode] || '업무 보드';
+      ['Board','Calendar','Worker'].forEach(v => {
+        const n = document.getElementById('nav' + v);
+        if (n) n.classList.remove('active');
+      });
+      const map = { board: 'navBoard', calendar: 'navCalendar', worker: 'navWorker' };
+      const active = document.getElementById(map[mode]);
+      if (active) active.classList.add('active');
+    };
 
-          ['navBoard', 'navCalendar', 'navWorker'].forEach((id) => {
-            const el = document.getElementById(id);
-            if (el) el.classList.remove('active');
-          });
-          const activeMap = { board: 'navBoard', calendar: 'navCalendar', worker: 'navWorker' };
-          const activeEl = document.getElementById(activeMap[mode] || 'navBoard');
-          if (activeEl) activeEl.classList.add('active');
-        };
-      }
+    /* ── 통계 카드 업데이트 (render 후 호출) ── */
+    function updateStatCards() {
+      if (typeof localState === 'undefined') return;
+      const counts = { '업무대기': 0, '진행중': 0, '컨펌중': 0, '수정중': 0, '작업완료': 0 };
+      (localState.tasks || []).forEach(t => {
+        const s = t.status;
+        if (counts[s] !== undefined) counts[s]++;
+      });
+      const map = {
+        '업무대기': 'statNumWait', '진행중': 'statNumProgress',
+        '컨펌중': 'statNumConfirm', '수정중': 'statNumEdit', '작업완료': 'statNumDone'
+      };
+      Object.entries(map).forEach(([status, id]) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = counts[status];
+      });
+    }
 
-      function updateStatCards() {
-        if (typeof localState === 'undefined') return;
-        const counts = { '업무대기': 0, '진행중': 0, '컨펌중': 0, '수정중': 0, '작업완료': 0 };
-        (localState.tasks || []).forEach((task) => {
-          if (Object.prototype.hasOwnProperty.call(counts, task.status)) {
-            counts[task.status] += 1;
-          }
-        });
-        const idMap = {
-          '업무대기': 'statNumWait',
-          '진행중': 'statNumProgress',
-          '컨펌중': 'statNumConfirm',
-          '수정중': 'statNumEdit',
-          '작업완료': 'statNumDone'
-        };
-        Object.keys(idMap).forEach((status) => {
-          const el = document.getElementById(idMap[status]);
-          if (el) el.textContent = String(counts[status]);
-        });
+    /* render() 를 감싸서 통계 자동 업데이트 */
+    document.addEventListener('DOMContentLoaded', () => {
+      const _orig = window.render;
+      if (typeof _orig === 'function') {
+        window.render = function() { _orig(); updateStatCards(); };
       }
-
-      const originalRender = window.render;
-      if (typeof originalRender === 'function') {
-        window.render = function () {
-          originalRender();
-          updateStatCards();
-        };
-      }
-      updateStatCards();
-    }());
+    });
   </script>
 </body>
 </html>

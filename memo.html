@@ -1,0 +1,955 @@
+﻿<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>메모장</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@300;400;600&family=Noto+Sans+KR:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #f3f4f6;
+    --sidebar-bg: #e5e7eb;
+    --card-bg: #fff;
+    --text: #111827;
+    --muted: #6b7280;
+    --border: rgba(17,24,39,0.14);
+    --accent: #4b5563;
+    --accent-light: #e5e7eb;
+    --danger: #dc2626;
+    --success: #16a34a;
+    --sidebar-w: 260px;
+    --header-h: 52px;
+  }
+
+  body {
+    font-family: 'Noto Sans KR', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ── Header ── */
+  header {
+    height: var(--header-h); display: flex; align-items: center;
+    padding: 0 1rem; border-bottom: 1px solid var(--border);
+    background: var(--sidebar-bg); gap: .75rem; flex-shrink: 0;
+  }
+  .logo { font-family: 'Noto Serif KR', serif; font-size: 1.05rem; font-weight: 600; color: var(--text); }
+  .header-spacer { flex: 1; }
+  .header-status {
+    font-size: .73rem; color: var(--muted);
+    display: flex; align-items: center; gap: .4rem;
+  }
+  .status-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--muted); transition: background .3s;
+  }
+  .status-dot.ok { background: var(--success); }
+  .status-dot.saving { background: var(--accent); }
+  .status-dot.err { background: var(--danger); }
+  /* ── Layout ── */
+  .app-body {
+    flex: 1; display: flex; overflow: hidden;
+  }
+
+  /* ── Sidebar ── */
+  aside {
+    width: var(--sidebar-w); background: var(--sidebar-bg);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; flex-shrink: 0;
+    overflow: hidden;
+  }
+  .sidebar-top {
+    padding: .85rem .85rem .5rem;
+    display: grid;
+    gap: .5rem;
+  }
+  .search-input {
+    width: 100%;
+    border: 1px solid var(--border); border-radius: 7px;
+    padding: .4rem .7rem; font-size: .8rem; background: var(--card-bg);
+    font-family: inherit; color: var(--text);
+  }
+  .search-input:focus { outline: none; border-color: var(--accent); }
+  .btn-new {
+    width: 100%;
+    height: 34px;
+    border-radius: 8px;
+    background: var(--accent);
+    color: #fff;
+    border: none; font-size: 18px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    font-family: inherit;
+    font-size: .82rem;
+    font-weight: 600;
+    letter-spacing: .01em;
+    transition: opacity .15s;
+  }
+  .btn-new:hover { opacity: .85; }
+  .page-list { flex: 1; overflow-y: auto; padding: .4rem .5rem; }
+  .page-list::-webkit-scrollbar { width: 4px; }
+  .page-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  .page-item {
+    padding: .5rem .7rem; border-radius: 7px; cursor: pointer;
+    transition: background .12s; position: relative;
+  }
+  .page-item:hover { background: rgba(0,0,0,0.05); }
+  .page-item.active { background: var(--card-bg); }
+  .page-item-title {
+    font-size: .83rem; font-weight: 500; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; color: var(--text);
+  }
+  .page-item-sub {
+    font-size: .7rem; color: var(--muted); margin-top: .15rem;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .page-item-del {
+    position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+    width: 20px; height: 20px; border-radius: 4px;
+    background: transparent; border: none; cursor: pointer;
+    color: var(--muted); font-size: 12px;
+    display: none; align-items: center; justify-content: center;
+  }
+  .page-item:hover .page-item-del { display: flex; }
+  .page-item-del:hover { background: rgba(220,38,38,0.1); color: var(--danger); }
+
+  /* ── Editor ── */
+  main {
+    flex: 1; overflow-y: auto; padding: 3rem 4rem;
+    display: flex; flex-direction: column;
+  }
+  main::-webkit-scrollbar { width: 5px; }
+  main::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  .editor-inner { max-width: 720px; width: 100%; margin: 0 auto; }
+
+  .page-title-input {
+    font-family: 'Noto Serif KR', serif;
+    font-size: 2.2rem; font-weight: 600;
+    border: none; outline: none; width: 100%;
+    background: transparent; color: var(--text);
+    margin-bottom: 1.5rem; line-height: 1.3;
+    resize: none; overflow: hidden;
+  }
+  .page-title-input::placeholder { color: rgba(0,0,0,0.18); }
+
+  /* Toolbar */
+  .toolbar {
+    display: flex; gap: .3rem; padding: .5rem 0;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 1.2rem; flex-wrap: wrap;
+  }
+  .tb-btn {
+    padding: .28rem .6rem; border-radius: 5px;
+    background: transparent; border: none;
+    cursor: pointer; font-size: .82rem;
+    color: var(--muted); font-family: inherit;
+    transition: background .12s, color .12s;
+  }
+  .tb-btn:hover { background: var(--border); color: var(--text); }
+  .tb-btn.active { background: var(--accent-light); color: var(--accent); }
+  .tb-sep { width: 1px; background: var(--border); margin: 0 .2rem; }
+
+  /* Content area */
+  .content-area { min-height: 400px; }
+  .block {
+    display: flex; align-items: flex-start; gap: .6rem;
+    margin-bottom: .25rem; position: relative;
+  }
+  .block-handle {
+    width: 16px; flex-shrink: 0; margin-top: .3rem;
+    opacity: 0; color: var(--muted); font-size: 11px;
+    cursor: grab; transition: opacity .15s;
+  }
+  .block:hover .block-handle { opacity: 1; }
+
+  /* Text block */
+  .block-text {
+    flex: 1; outline: none; font-size: 1rem;
+    line-height: 1.8; color: var(--text);
+    font-family: 'Noto Sans KR', sans-serif;
+    min-height: 1.8rem; padding: .1rem 0;
+  }
+  .block-text:empty::before {
+    content: attr(data-placeholder);
+    color: rgba(0,0,0,0.2); pointer-events: none;
+  }
+  .block-text b, .block-text strong { font-weight: 700; }
+  .block-text i, .block-text em { font-style: italic; }
+  .block-text del { text-decoration: line-through; }
+  .block-text code {
+    font-family: monospace; background: rgba(0,0,0,0.06);
+    padding: .1em .35em; border-radius: 4px; font-size: .9em;
+  }
+
+  /* Heading blocks */
+  .block-h1 .block-text { font-family: 'Noto Serif KR', serif; font-size: 1.7rem; font-weight: 600; line-height: 1.4; }
+  .block-h2 .block-text { font-family: 'Noto Serif KR', serif; font-size: 1.3rem; font-weight: 600; line-height: 1.4; }
+  .block-h3 .block-text { font-size: 1.1rem; font-weight: 600; line-height: 1.4; }
+
+  /* Quote block */
+  .block-quote .block-text {
+    border-left: 3px solid var(--accent);
+    padding-left: .85rem; color: var(--muted);
+    font-style: italic;
+  }
+
+  /* Divider block */
+  .block-divider { height: 1px; background: var(--border); margin: .75rem 0; flex: 1; }
+
+  /* Todo block */
+  .block-todo { align-items: center; }
+  .todo-check {
+    width: 16px; height: 16px; border-radius: 4px;
+    border: 1.5px solid var(--muted); cursor: pointer;
+    flex-shrink: 0; margin-top: 0;
+    display: flex; align-items: center; justify-content: center;
+    transition: background .15s, border-color .15s;
+    background: transparent;
+  }
+  .todo-check.checked { background: var(--accent); border-color: var(--accent); color: #fff; font-size: 10px; }
+  .block-todo .block-text.done { text-decoration: line-through; opacity: .5; }
+
+  /* Bullet block */
+  .block-bullet::before {
+    content: '•'; flex-shrink: 0; color: var(--muted);
+    margin-top: .28rem; font-size: .7rem; line-height: 1.8;
+  }
+
+  /* Numbered block */
+  .block-numbered .block-num {
+    flex-shrink: 0; color: var(--muted); font-size: .88rem;
+    line-height: 1.8; min-width: 1.3rem; margin-top: .1rem;
+  }
+
+  /* Toggle block */
+  .block-toggle .toggle-btn {
+    width: 20px; height: 20px; border: none;
+    background: transparent; color: var(--muted);
+    cursor: pointer; border-radius: 6px;
+    flex-shrink: 0; margin-top: .1rem;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; line-height: 1;
+  }
+  .block-toggle .toggle-btn:hover { background: rgba(0,0,0,0.06); }
+  .block-toggle .toggle-btn::before { content: '▾'; transition: transform .15s ease; }
+  .block-toggle.collapsed .toggle-btn::before { transform: rotate(-90deg); }
+  .block-toggle.collapsed .block-text { display: none; }
+  .toggle-title-preview {
+    display: none;
+    flex: 1;
+    font-size: .92rem;
+    font-weight: 600;
+    color: var(--text);
+    line-height: 1.7;
+    padding: .1rem 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .block-toggle.collapsed .toggle-title-preview { display: block; }
+  .block-hidden-by-toggle { display: none; }
+  .block-toggle-end {
+    align-items: center;
+    gap: .55rem;
+    opacity: .78;
+  }
+  .block-toggle-end::before {
+    content: '';
+    flex: 1;
+    height: 1px;
+    border-top: 1px dashed var(--border);
+  }
+  .toggle-end-label {
+    font-size: .72rem;
+    color: var(--muted);
+    letter-spacing: .02em;
+    white-space: nowrap;
+  }
+  .block-toggle-end::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    border-top: 1px dashed var(--border);
+  }
+
+  /* Empty state */
+  .empty-state {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    color: var(--muted); gap: 1rem;
+  }
+  .empty-icon { font-size: 3rem; opacity: .3; }
+  .empty-text { font-size: .9rem; }
+
+  /* Loading */
+  .loading { font-size: .82rem; color: var(--muted); text-align: center; padding: 2rem; }
+
+  @media (max-width: 640px) {
+    aside { width: 200px; }
+    main { padding: 1.5rem 1.2rem; }
+    .page-title-input { font-size: 1.5rem; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <span class="logo">✦ 메모장</span>
+  <div class="header-spacer"></div>
+  <div class="header-status">
+    <div class="status-dot" id="status-dot"></div>
+    <span id="status-text">대기</span>
+  </div>
+</header>
+
+<div class="app-body">
+  <aside>
+    <div class="sidebar-top">
+      <input class="search-input" id="search-input" placeholder="메모제목 검색..">
+      <button class="btn-new" id="btn-new" title="새 메모 작성">새 메모 작성</button>
+    </div>
+    <div class="page-list" id="page-list">
+      <div class="loading">불러오는 중...</div>
+    </div>
+  </aside>
+
+  <main id="main-area">
+    <div class="empty-state" id="empty-state">
+      <div class="empty-icon">✦</div>
+      <div class="empty-text">왼쪽에서 페이지를 선택하거나 새로 만드세요</div>
+    </div>
+  </main>
+</div>
+
+<!-- Firebase SDK -->
+<script type="module">
+import { initializeApp, getApps } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+import { getAuth } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js';
+import {
+  getFirestore, collection, addDoc, getDocs, doc,
+  updateDoc, deleteDoc, serverTimestamp, query, where, onSnapshot
+} from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+
+// ── State ──────────────────────────────────
+let db = null;
+let useFirestore = false;
+let pages = [];        // { id, title, blocks, updatedAt }
+let currentPageId = null;
+let saveTimer = null;
+let localId = 0;
+let currentUid = '';
+const OBSOLETE_STORAGE_KEYS = [
+  'fb-cfg',
+  'memo-pages-rich-v1'
+];
+const DEFAULT_FIREBASE_CONFIG = {
+  apiKey: 'AIzaSyDl71Ezdl85KnoEuBpBaz1pVfC2K3yR0QQ',
+  authDomain: 'myworkboard-981bf.firebaseapp.com',
+  projectId: 'myworkboard-981bf'
+};
+const PAGES_COLLECTION = 'work_manager_memos';
+const PAGE_SOURCE = 'memo_html';
+
+// ── DOM refs ───────────────────────────────
+const pageListEl = document.getElementById('page-list');
+const mainArea = document.getElementById('main-area');
+const emptyState = document.getElementById('empty-state');
+const statusDot = document.getElementById('status-dot');
+const statusText = document.getElementById('status-text');
+const searchInput = document.getElementById('search-input');
+
+// ── Firebase init ──────────────────────────
+async function initFirebase(cfg) {
+  try {
+    const app = getApps().length ? getApps()[0] : initializeApp(cfg);
+    db = getFirestore(app);
+    const auth = getAuth(app);
+    if (typeof auth.authStateReady === 'function') {
+      await auth.authStateReady();
+    }
+    currentUid = auth.currentUser && auth.currentUser.uid ? auth.currentUser.uid : '';
+    if (!currentUid) throw new Error('auth_required');
+
+    await getDocs(query(collection(db, PAGES_COLLECTION), where('source', '==', PAGE_SOURCE)));
+    useFirestore = true;
+    setStatus('연결됨', 'ok');
+    return true;
+  } catch(e) {
+    console.error(e);
+    db = null; useFirestore = false;
+    setStatus('연결 실패', 'err');
+    return false;
+  }
+}
+
+// ── Status ─────────────────────────────────
+function setStatus(text, state) {
+  statusText.textContent = text;
+  statusDot.className = 'status-dot' + (state ? ' '+state : '');
+}
+
+function cleanupObsoleteLocalStorage() {
+  try {
+    OBSOLETE_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key));
+  } catch (_) {}
+}
+
+// ── Pages CRUD ─────────────────────────────
+async function loadPages() {
+  if (useFirestore) {
+    try {
+      const q = query(collection(db, PAGES_COLLECTION), where('source', '==', PAGE_SOURCE));
+      onSnapshot(q, (snap) => {
+        pages = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => {
+            const aMs = a && a.updatedAt && typeof a.updatedAt.toMillis === 'function'
+              ? a.updatedAt.toMillis()
+              : Number(a && a.updatedAt ? a.updatedAt : 0);
+            const bMs = b && b.updatedAt && typeof b.updatedAt.toMillis === 'function'
+              ? b.updatedAt.toMillis()
+              : Number(b && b.updatedAt ? b.updatedAt : 0);
+            return bMs - aMs;
+          });
+        renderPageList();
+      });
+    } catch(e) { console.error(e); }
+  } else {
+    const raw = localStorage.getItem('local-pages');
+    pages = raw ? JSON.parse(raw) : [];
+    renderPageList();
+  }
+}
+
+function saveLocalPages() {
+  localStorage.setItem('local-pages', JSON.stringify(pages));
+}
+
+async function createPage() {
+  const page = {
+    title: '제목 없음',
+    blocks: [{ id: newId(), type: 'text', text: '', checked: false }],
+    updatedAt: Date.now()
+  };
+  if (useFirestore) {
+    try {
+      const ref = await addDoc(collection(db, PAGES_COLLECTION), {
+        ...page,
+        source: PAGE_SOURCE,
+        ownerUid: currentUid || '',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+      page.id = ref.id;
+    } catch(e) { console.error(e); page.id = 'local-'+Date.now(); }
+  } else {
+    page.id = 'local-' + (++localId);
+    pages.unshift(page);
+    saveLocalPages();
+    renderPageList();
+  }
+  openPage(page.id);
+}
+
+async function deletePage(id) {
+  if (!confirm('이 페이지를 삭제할까요?')) return;
+  if (useFirestore) {
+    try { await deleteDoc(doc(db, PAGES_COLLECTION, id)); } catch(e) { console.error(e); }
+  } else {
+    pages = pages.filter(p => p.id !== id);
+    saveLocalPages();
+    renderPageList();
+  }
+  if (currentPageId === id) {
+    currentPageId = null;
+    mainArea.innerHTML = '';
+    mainArea.appendChild(emptyState);
+    emptyState.style.display = '';
+  }
+}
+
+function scheduleSave() {
+  clearTimeout(saveTimer);
+  setStatus('저장 중...', 'saving');
+  saveTimer = setTimeout(persistCurrentPage, 1200);
+}
+
+async function persistCurrentPage() {
+  if (!currentPageId) return;
+  const page = pages.find(p => p.id === currentPageId);
+  if (!page) return;
+
+  // collect title + blocks from DOM
+  const titleEl = document.querySelector('.page-title-input');
+  if (titleEl) page.title = titleEl.value || '제목 없음';
+
+  page.blocks = collectBlocks();
+  page.updatedAt = Date.now();
+
+  if (useFirestore) {
+    try {
+      await updateDoc(doc(db, PAGES_COLLECTION, currentPageId), {
+        title: page.title,
+        blocks: page.blocks,
+        source: PAGE_SOURCE,
+        ownerUid: currentUid || '',
+        updatedAt: serverTimestamp()
+      });
+      setStatus('저장됨', 'ok');
+    } catch(e) {
+      console.error(e); setStatus('저장 실패', 'err');
+    }
+  } else {
+    const idx = pages.findIndex(p => p.id === currentPageId);
+    if (idx >= 0) pages[idx] = page;
+    saveLocalPages();
+    renderPageList();
+    setStatus('저장됨', 'ok');
+  }
+}
+
+// ── Page list UI ───────────────────────────
+function renderPageList() {
+  const q = searchInput.value.toLowerCase();
+  const filtered = q
+    ? pages.filter(p => (p.title||'').toLowerCase().includes(q))
+    : pages;
+
+  if (filtered.length === 0) {
+    pageListEl.innerHTML = '<div class="loading">페이지가 없습니다</div>';
+    return;
+  }
+  pageListEl.innerHTML = filtered.map(p => `
+    <div class="page-item ${p.id===currentPageId?'active':''}" data-id="${p.id}">
+      <div class="page-item-title">${esc(p.title||'제목 없음')}</div>
+      <div class="page-item-sub">${esc(previewText(p.blocks))}</div>
+      <button class="page-item-del" data-id="${p.id}" title="삭제">✕</button>
+    </div>
+  `).join('');
+
+  pageListEl.querySelectorAll('.page-item').forEach(el => {
+    el.onclick = (e) => {
+      if (e.target.classList.contains('page-item-del')) return;
+      openPage(el.dataset.id);
+    };
+  });
+  pageListEl.querySelectorAll('.page-item-del').forEach(el => {
+    el.onclick = (e) => { e.stopPropagation(); deletePage(el.dataset.id); };
+  });
+}
+
+function previewText(blocks) {
+  if (!blocks) return '';
+  for (const b of blocks) {
+    if (b.text && b.text.trim()) return b.text.trim().slice(0, 40);
+  }
+  return '';
+}
+
+searchInput.oninput = () => renderPageList();
+document.getElementById('btn-new').onclick = createPage;
+
+// ── Editor ─────────────────────────────────
+function openPage(id) {
+  persistCurrentPage();
+  currentPageId = id;
+  const page = pages.find(p => p.id === id);
+  if (!page) return;
+
+  // mark active in sidebar
+  pageListEl.querySelectorAll('.page-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.id === id);
+  });
+
+  // build editor
+  mainArea.innerHTML = `
+    <div class="editor-inner">
+      <textarea class="page-title-input" placeholder="제목" rows="1">${esc(page.title||'')}</textarea>
+      <div class="toolbar" id="toolbar">
+        <button class="tb-btn" data-cmd="bold"><b>B</b></button>
+        <button class="tb-btn" data-cmd="italic"><i>I</i></button>
+        <button class="tb-btn" data-cmd="strikeThrough"><del>S</del></button>
+        <div class="tb-sep"></div>
+        <button class="tb-btn" data-type="h1">H1</button>
+        <button class="tb-btn" data-type="h2">H2</button>
+        <button class="tb-btn" data-type="h3">H3</button>
+        <div class="tb-sep"></div>
+        <button class="tb-btn" data-type="todo">☑</button>
+        <button class="tb-btn" data-type="bullet">• 목록</button>
+        <button class="tb-btn" data-type="numbered">1. 번호</button>
+        <div class="tb-sep"></div>
+        <button class="tb-btn" data-type="quote">" 인용</button>
+        <button class="tb-btn" data-type="toggle">▾ 토글</button>
+        <button class="tb-btn" data-type="divider">— 구분선</button>
+      </div>
+      <div class="content-area" id="content-area"></div>
+    </div>
+  `;
+
+  const titleEl = mainArea.querySelector('.page-title-input');
+  autoResize(titleEl);
+  titleEl.oninput = () => { autoResize(titleEl); scheduleSave(); };
+
+  const ca = document.getElementById('content-area');
+  const blocks = page.blocks && page.blocks.length ? page.blocks : [{ id: newId(), type: 'text', text: '' }];
+  blocks.forEach(b => ca.appendChild(renderBlock(b)));
+  updateNumbered();
+  applyToggleVisibility();
+
+  // toolbar actions
+  document.getElementById('toolbar').onclick = (e) => {
+    const btn = e.target.closest('[data-cmd],[data-type]');
+    if (!btn) return;
+    if (btn.dataset.cmd) {
+      document.execCommand(btn.dataset.cmd, false, null);
+      scheduleSave();
+    } else {
+      const focused = document.activeElement;
+      const block = focused ? focused.closest('.block') : null;
+      if (block) convertBlock(block, btn.dataset.type);
+      else appendBlock(btn.dataset.type);
+    }
+  };
+}
+
+// ── Block rendering ────────────────────────
+function newId() { return Math.random().toString(36).slice(2,9); }
+
+function renderBlock(b) {
+  const blockType = b.type === 'code' ? 'text' : (b.type || 'text');
+  const div = document.createElement('div');
+  div.className = 'block block-' + blockType;
+  div.dataset.id = b.id;
+  div.dataset.type = blockType;
+  if (blockType === 'toggle') {
+    div.classList.toggle('collapsed', Boolean(b.collapsed));
+  }
+
+  const handle = document.createElement('span');
+  handle.className = 'block-handle';
+  handle.textContent = '⠿';
+  div.appendChild(handle);
+
+  if (blockType === 'divider') {
+    const hr = document.createElement('div');
+    hr.className = 'block-divider';
+    div.appendChild(hr);
+    div.tabIndex = 0;
+    div.onkeydown = (event) => {
+      if (event.key !== 'Backspace' && event.key !== 'Delete') return;
+      event.preventDefault();
+      removeBlockElement(div);
+      scheduleSave();
+    };
+  } else if (blockType === 'toggle-end') {
+    const endLabel = document.createElement('span');
+    endLabel.className = 'toggle-end-label';
+    endLabel.textContent = '토글 끝';
+    div.appendChild(endLabel);
+  } else if (blockType === 'todo') {
+    const chk = document.createElement('div');
+    chk.className = 'todo-check' + (b.checked ? ' checked' : '');
+    chk.textContent = b.checked ? '✓' : '';
+    chk.onclick = () => {
+      const checked = !chk.classList.contains('checked');
+      chk.classList.toggle('checked', checked);
+      chk.textContent = checked ? '✓' : '';
+      const textEl = div.querySelector('.block-text');
+      if (textEl) textEl.classList.toggle('done', checked);
+      scheduleSave();
+    };
+    div.appendChild(chk);
+    div.appendChild(makeTextEl(b));
+  } else if (blockType === 'bullet') {
+    div.appendChild(makeTextEl(b));
+  } else if (blockType === 'numbered') {
+    const num = document.createElement('span');
+    num.className = 'block-num';
+    div.appendChild(num);
+    div.appendChild(makeTextEl(b));
+  } else if (blockType === 'toggle') {
+    const toggleBtn = document.createElement('button');
+    toggleBtn.type = 'button';
+    toggleBtn.className = 'toggle-btn';
+    toggleBtn.title = '토글 접기/펼치기';
+    toggleBtn.onclick = (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      div.classList.toggle('collapsed');
+      applyToggleVisibility();
+      scheduleSave();
+    };
+    div.appendChild(toggleBtn);
+    const preview = document.createElement('div');
+    preview.className = 'toggle-title-preview';
+    preview.textContent = '토글 제목';
+    div.appendChild(preview);
+    const textEl = makeTextEl(b);
+    textEl.addEventListener('input', () => updateToggleTitlePreview(div));
+    div.appendChild(textEl);
+    updateToggleTitlePreview(div);
+  } else {
+    div.appendChild(makeTextEl(b));
+  }
+
+  return div;
+}
+
+function makeTextEl(b) {
+  const blockType = b.type === 'code' ? 'text' : (b.type || 'text');
+  const el = document.createElement('div');
+  el.className = 'block-text' + (b.checked ? ' done' : '');
+  el.contentEditable = 'true';
+  el.dataset.placeholder = blockType === 'h1' ? '제목 1' : blockType === 'h2' ? '제목 2' : blockType === 'h3' ? '제목 3' : blockType === 'quote' ? '인용구...' : blockType === 'toggle' ? '토글 제목 또는 내용...' : '내용 입력...';
+  el.innerHTML = b.text || '';
+  if (blockType === 'toggle-end' || blockType === 'divider') {
+    el.contentEditable = 'false';
+    el.style.display = 'none';
+    return el;
+  }
+
+  el.oninput = () => scheduleSave();
+
+  el.onkeydown = (e) => {
+    const block = el.closest('.block');
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      const newType = ['todo','bullet','numbered'].includes(block.dataset.type) ? block.dataset.type : 'text';
+      const nb = { id: newId(), type: newType, text: '', checked: false };
+      const newEl = renderBlock(nb);
+      block.after(newEl);
+      updateNumbered();
+      newEl.querySelector('.block-text')?.focus();
+    }
+    if (e.key === 'Backspace' && el.textContent === '') {
+      if (block && block.dataset.type === 'toggle') {
+        e.preventDefault();
+        convertBlock(block, 'text');
+        return;
+      }
+      e.preventDefault();
+      const prev = block.previousElementSibling;
+      block.remove();
+      updateNumbered();
+      applyToggleVisibility();
+      if (prev) {
+        const pt = prev.querySelector('.block-text');
+        if (pt) { pt.focus(); placeCaretAtEnd(pt); }
+      }
+      scheduleSave();
+    }
+    // Markdown shortcuts
+    if (e.key === ' ') {
+      const text = el.textContent;
+      const compact = String(text || '').replace(/\s+/g, '');
+      if (text === '#') { e.preventDefault(); el.textContent=''; convertBlock(block, 'h1'); }
+      else if (text === '##') { e.preventDefault(); el.textContent=''; convertBlock(block, 'h2'); }
+      else if (text === '###') { e.preventDefault(); el.textContent=''; convertBlock(block, 'h3'); }
+      else if (text === '-' || text === '*') { e.preventDefault(); el.textContent=''; convertBlock(block, 'bullet'); }
+      else if (text === '[]' || text === '[ ]') { e.preventDefault(); el.textContent=''; convertBlock(block, 'todo'); }
+      else if (text === '>') { e.preventDefault(); el.textContent=''; convertBlock(block, 'quote'); }
+      else if (compact === '/toggle' || compact === '/토글') { e.preventDefault(); el.textContent=''; convertBlock(block, 'toggle'); }
+      else if (compact === '/end' || compact === '/끝') { e.preventDefault(); el.textContent=''; convertBlock(block, 'toggle-end'); }
+      else if (text === '---') { e.preventDefault(); el.textContent=''; convertBlock(block, 'divider'); }
+      else if (/^\d+\.$/.test(text)) { e.preventDefault(); el.textContent=''; convertBlock(block, 'numbered'); }
+    }
+  };
+  return el;
+}
+
+function convertBlock(blockEl, type) {
+  const nextType = type === 'code' ? 'text' : type;
+  const wasToggle = blockEl.dataset.type === 'toggle';
+  const pairedToggleEnd = wasToggle ? findPairedToggleEnd(blockEl) : null;
+  const textEl = blockEl.querySelector('.block-text');
+  const text = textEl ? textEl.innerHTML : '';
+  const checked = blockEl.classList.contains('block-todo')
+    ? blockEl.querySelector('.todo-check')?.classList.contains('checked')
+    : false;
+  const collapsed = blockEl.classList.contains('block-toggle') ? blockEl.classList.contains('collapsed') : false;
+  const nb = { id: blockEl.dataset.id || newId(), type: nextType, text, checked: checked||false, collapsed };
+  const newEl = renderBlock(nb);
+  blockEl.replaceWith(newEl);
+  if (wasToggle && nextType !== 'toggle' && pairedToggleEnd && pairedToggleEnd.parentNode) {
+    pairedToggleEnd.remove();
+  }
+  if (nextType === 'toggle') {
+    const next = newEl.nextElementSibling;
+    if (!next || next.dataset.type !== 'toggle-end') {
+      const endBlock = renderBlock({ id: newId(), type: 'toggle-end', text: '', checked: false, collapsed: false });
+      const trailing = renderBlock({ id: newId(), type: 'text', text: '', checked: false, collapsed: false });
+      newEl.after(endBlock);
+      endBlock.after(trailing);
+    }
+  }
+  if (nextType === 'toggle-end') {
+    const next = newEl.nextElementSibling;
+    if (!next || !next.querySelector('.block-text')) {
+      const trailing = renderBlock({ id: newId(), type: 'text', text: '', checked: false, collapsed: false });
+      newEl.after(trailing);
+    }
+  }
+  updateNumbered();
+  applyToggleVisibility();
+  const nt = nextType === 'toggle-end'
+    ? (newEl.nextElementSibling && newEl.nextElementSibling.querySelector('.block-text'))
+    : newEl.querySelector('.block-text');
+  if (nt) { nt.focus(); placeCaretAtEnd(nt); }
+  scheduleSave();
+}
+
+function appendBlock(type) {
+  const ca = document.getElementById('content-area');
+  const nextType = type === 'code' ? 'text' : type;
+  const nb = { id: newId(), type: nextType, text: '', checked: false, collapsed: false };
+  const el = renderBlock(nb);
+  ca.appendChild(el);
+  if (nextType === 'toggle') {
+    const endBlock = renderBlock({ id: newId(), type: 'toggle-end', text: '', checked: false, collapsed: false });
+    const trailing = renderBlock({ id: newId(), type: 'text', text: '', checked: false, collapsed: false });
+    ca.appendChild(endBlock);
+    ca.appendChild(trailing);
+  }
+  if (nextType === 'toggle-end') {
+    const trailing = renderBlock({ id: newId(), type: 'text', text: '', checked: false, collapsed: false });
+    ca.appendChild(trailing);
+  }
+  updateNumbered();
+  applyToggleVisibility();
+  const focusTarget = nextType === 'toggle-end'
+    ? (el.nextElementSibling && el.nextElementSibling.querySelector('.block-text'))
+    : nextType === 'toggle'
+      ? (el.nextElementSibling && el.nextElementSibling.nextElementSibling && el.nextElementSibling.nextElementSibling.querySelector('.block-text'))
+      : el.querySelector('.block-text');
+  focusTarget?.focus();
+}
+
+function findPairedToggleEnd(toggleBlock) {
+  if (!toggleBlock) return null;
+  let cursor = toggleBlock.nextElementSibling;
+  while (cursor) {
+    if (cursor.dataset && cursor.dataset.type === 'toggle-end') return cursor;
+    if (cursor.dataset && cursor.dataset.type === 'toggle') return null;
+    cursor = cursor.nextElementSibling;
+  }
+  return null;
+}
+
+function removeBlockElement(block) {
+  if (!block || !block.parentNode) return;
+  const prev = block.previousElementSibling;
+  const wasToggle = block.dataset && block.dataset.type === 'toggle';
+  const pairedToggleEnd = wasToggle ? findPairedToggleEnd(block) : null;
+  block.remove();
+  if (wasToggle && pairedToggleEnd && pairedToggleEnd.parentNode) {
+    pairedToggleEnd.remove();
+  }
+  updateNumbered();
+  applyToggleVisibility();
+  const target = prev && prev.querySelector ? prev.querySelector('.block-text') : null;
+  if (target) {
+    target.focus();
+    placeCaretAtEnd(target);
+  }
+}
+
+function updateNumbered() {
+  const ca = document.getElementById('content-area');
+  if (!ca) return;
+  let n = 1;
+  ca.querySelectorAll('.block').forEach(b => {
+    if (b.dataset.type === 'numbered') {
+      const num = b.querySelector('.block-num');
+      if (num) num.textContent = (n++) + '.';
+    } else { n = 1; }
+  });
+}
+
+function applyToggleVisibility() {
+  const ca = document.getElementById('content-area');
+  if (!ca) return;
+  const blocks = Array.from(ca.querySelectorAll('.block'));
+  let hiding = false;
+  blocks.forEach((block) => {
+    if (block.dataset.type === 'toggle') {
+      block.classList.remove('block-hidden-by-toggle');
+      hiding = block.classList.contains('collapsed');
+      return;
+    }
+    if (block.dataset.type === 'toggle-end') {
+      block.classList.toggle('block-hidden-by-toggle', hiding);
+      hiding = false;
+      return;
+    }
+    block.classList.toggle('block-hidden-by-toggle', hiding);
+  });
+}
+
+function updateToggleTitlePreview(toggleBlock) {
+  if (!toggleBlock || toggleBlock.dataset.type !== 'toggle') return;
+  const preview = toggleBlock.querySelector('.toggle-title-preview');
+  const textEl = toggleBlock.querySelector('.block-text');
+  if (!preview || !textEl) return;
+  const full = String(textEl.textContent || '');
+  const firstLine = full.split('\n').map((line) => line.trim()).find(Boolean) || '';
+  preview.textContent = firstLine || '토글 제목';
+}
+
+function collectBlocks() {
+  const ca = document.getElementById('content-area');
+  if (!ca) return [];
+  return Array.from(ca.querySelectorAll('.block')).map(b => {
+    const textEl = b.querySelector('.block-text');
+    const chkEl = b.querySelector('.todo-check');
+    return {
+      id: b.dataset.id || newId(),
+      type: b.dataset.type || 'text',
+      text: textEl ? textEl.innerHTML : '',
+      checked: chkEl ? chkEl.classList.contains('checked') : false,
+      collapsed: b.classList.contains('block-toggle') ? b.classList.contains('collapsed') : false
+    };
+  });
+}
+
+// ── Helpers ────────────────────────────────
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = el.scrollHeight + 'px';
+}
+function esc(s) {
+  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function placeCaretAtEnd(el) {
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  range.collapse(false);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
+// ── Boot ───────────────────────────────────
+cleanupObsoleteLocalStorage();
+const bootCfg = DEFAULT_FIREBASE_CONFIG;
+if (bootCfg) {
+  setStatus('연결 중...', 'saving');
+  initFirebase(bootCfg).then(ok => {
+    if (ok) loadPages();
+    else {
+      setStatus('서버 실패 · 로컬모드', 'err');
+      loadPages();
+    }
+  });
+} else {
+  setStatus('로컬모드', '');
+  loadPages();
+}
+</script>
+</body>
+</html>

@@ -3,6 +3,7 @@ const db = firebase.firestore();
 const auth = firebase.auth();
 const AUTH_STORAGE_KEY = 'flowos_auth_v1';
 const THEME_STORAGE_KEY = 'flowos_theme_v1';
+const SHARED_MEMO_THEME_STORAGE_KEY = 'memo-theme';
 const COLLECTIONS = {
   users: 'work_manager_users',
   tasks: 'work_manager_tasks',
@@ -62,6 +63,7 @@ let refreshClassicLadderInitialized = false;
 let refreshLadderDrawToken = 0;
 let refreshLadderNames = [];
 let refreshLadderInitialized = false;
+let refreshClassicLadderWinnerTimer = null;
 let refreshLadderWinnerTimer = null;
 const BRAND_COLOR_PRESETS = [
   { key: 'ocean', label: '오션', light: '#2f63c8', dark: '#8fc0ff' },
@@ -80,6 +82,7 @@ const BRAND_COLOR_PRESETS = [
 
 const localState = {
   users: [],
+  usersReady: false,
   brands: [],
   tasks: [],
   memos: [],
@@ -90,12 +93,13 @@ const localState = {
   authReady: false,
   archiveType: "보류중",
   editingTaskId: null,
-  sharedMemoSaveTimer: null,
   figmaBoardSaveTimer: null,
   memoSaveTimers: {},
   memoPreviewTimers: {},
   memoTypingUntil: 0,
   memoRenderTimer: null,
+  memoSearchQuery: '',
+  memoSort: 'updated_desc',
   figmaBoardContent: '',
   migrationTried: false,
   adminTaskQuery: '',
@@ -145,6 +149,7 @@ function initRealtime() {
   db.collection(COLLECTIONS.users).orderBy('name').onSnapshot({ includeMetadataChanges: true }, (snap) => {
     setFirebaseConnectedFromSnapshot(snap);
     localState.users = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+    localState.usersReady = true;
     render();
   }, handleRealtimeError);
 
@@ -176,16 +181,6 @@ function initRealtime() {
     maybeRenderMemos();
   }, handleRealtimeError);
 
-  db.collection(COLLECTIONS.config).doc('sharedMemo').onSnapshot({ includeMetadataChanges: true }, (doc) => {
-    setFirebaseConnectedFromSnapshot(doc);
-    const memoEl = document.getElementById('archiveStaticMemo');
-    const content = doc.exists ? (doc.data().content || '') : '';
-    if (memoEl && document.activeElement !== memoEl) {
-      memoEl.value = content;
-      renderSharedView(content);
-    }
-  }, handleRealtimeError);
-
   db.collection(COLLECTIONS.config).doc('figmaLinks').onSnapshot({ includeMetadataChanges: true }, (doc) => {
     setFirebaseConnectedFromSnapshot(doc);
     const editor = document.getElementById('figmaBoardEditor');
@@ -209,8 +204,7 @@ function migrateLegacyWorkflowCollections() {
     migrateCollectionIfTargetEmpty('workflow_memos', COLLECTIONS.memos),
     migrateCollectionIfTargetEmpty('users', COLLECTIONS.users),
     migrateCollectionIfTargetEmpty('tasks', COLLECTIONS.tasks),
-    migrateCollectionIfTargetEmpty('memos', COLLECTIONS.memos),
-    migrateSharedMemoConfigIfTargetMissing('workflow_config').then(() => migrateSharedMemoConfigIfTargetMissing('config'))
+    migrateCollectionIfTargetEmpty('memos', COLLECTIONS.memos)
   ];
 
   Promise.all(jobs).catch((err) => {
@@ -228,18 +222,6 @@ function migrateCollectionIfTargetEmpty(sourceCollection, targetCollection) {
         batch.set(db.collection(targetCollection).doc(doc.id), doc.data(), { merge: true });
       });
       return batch.commit();
-    });
-  });
-}
-
-function migrateSharedMemoConfigIfTargetMissing(sourceCollection) {
-  const targetRef = db.collection(COLLECTIONS.config).doc('sharedMemo');
-  const sourceRef = db.collection(sourceCollection || 'config').doc('sharedMemo');
-  return targetRef.get().then((targetDoc) => {
-    if (targetDoc.exists) return;
-    return sourceRef.get().then((sourceDoc) => {
-      if (!sourceDoc.exists) return;
-      return targetRef.set(sourceDoc.data() || {}, { merge: true });
     });
   });
 }
@@ -374,9 +356,28 @@ function renderBoard() {
     if (!zone) return;
 
     const sorted = getSortedTasksForStatus(status, taskGroups[status]);
+    updateBoardColumnHeader(status, sorted.length);
 
     sorted.forEach((task) => zone.appendChild(createTaskCard(task)));
   });
+}
+
+function updateBoardColumnHeader(status, count) {
+  const column = document.getElementById(status);
+  if (!column) return;
+  const titleEl = column.querySelector('h3');
+  if (!titleEl) return;
+  titleEl.classList.add('col-title');
+  titleEl.innerHTML = `
+    <span class="col-title-row">
+      <span class="col-status-mark">
+        <span class="col-dot" aria-hidden="true"></span>
+        <span class="col-title-text">${escapeHtml(status)}</span>
+      </span>
+      <span class="col-count-pill">${Number(count || 0)}</span>
+    </span>
+    <span class="col-accent-line" aria-hidden="true"></span>
+  `;
 }
 
 function getSortedTasksForStatus(status, sourceTasks) {
@@ -502,13 +503,33 @@ function renderWorkerMode() {
   const grid = document.getElementById('workerModeGrid');
   if (!grid) return;
 
-  if (!localState.users.length) {
+  const candidateUsers = localState.users.filter((user) => {
+    const name = String(user && user.name ? user.name : '').trim();
+    const pw = String(user && user.pw ? user.pw : '').trim();
+    return Boolean(name && pw);
+  });
+  const dedupedByName = new Map();
+  candidateUsers.forEach((user) => {
+    const key = String(user.name || '').trim().toLowerCase();
+    if (!key) return;
+    const prev = dedupedByName.get(key);
+    if (!prev) {
+      dedupedByName.set(key, user);
+      return;
+    }
+    const prevTime = getFirebaseTimeMs(prev.updatedAt) || getFirebaseTimeMs(prev.createdAt) || 0;
+    const curTime = getFirebaseTimeMs(user.updatedAt) || getFirebaseTimeMs(user.createdAt) || 0;
+    if (curTime >= prevTime) dedupedByName.set(key, user);
+  });
+  const registeredUsers = Array.from(dedupedByName.values());
+
+  if (!registeredUsers.length) {
     grid.innerHTML = '<div class="card">등록된 작업자가 없습니다.</div>';
     return;
   }
 
   const statsByUser = new Map();
-  localState.users.forEach((user) => {
+  registeredUsers.forEach((user) => {
     statsByUser.set(user.id, {
       user,
       activeTotal: 0,
@@ -576,12 +597,29 @@ function createTaskCard(task) {
   card.className = `card ${normalizedStatus === DONE_STATUS ? 'done-card' : ''}`.trim();
   card.id = task.id;
   card.draggable = true;
-  card.ondragstart = (e) => e.dataTransfer.setData('text', task.id);
+  card.ondragstart = (e) => {
+    if (e.target && e.target.closest('.backup-detail')) {
+      e.preventDefault();
+      return false;
+    }
+    e.dataTransfer.setData('text', task.id);
+    return true;
+  };
   const assigneeNames = resolveAssigneeNames(task);
   const primaryUserId = resolveAssigneeIds(task)[0] || '';
-  const userAvatar = resolveUserAvatar(primaryUserId, assigneeNames[0] || 'U');
-  const sticker = getTaskSticker(normalizedStatus);
-  const stickerHtml = sticker ? `<span class="task-sticker ${sticker.type}">${sticker.emoji}</span>` : '';
+  const hasAssignee = assigneeNames.length > 0;
+  const userAvatar = hasAssignee ? resolveUserAvatar(primaryUserId, assigneeNames[0] || 'U') : '';
+  const assigneeHtml = hasAssignee
+    ? `<span class="user-inline"><img class="avatar-xs" src="${escapeAttr(userAvatar)}" alt="avatar">${escapeHtml(assigneeNames.join(', '))}</span>`
+    : '<span class="card-unassigned">미지정</span>';
+  const dateValue = String(task.date || '').trim();
+  const dateHtml = dateValue
+    ? `<span class="card-date-chip">${escapeHtml(dateValue)}</span>`
+    : '<span class="card-unassigned">미지정</span>';
+  const brandValue = String(task.brandName || '').trim();
+  const brandHtml = brandValue
+    ? `<span class="card-brand-link">${escapeHtml(brandValue)}</span>`
+    : '<span class="card-unassigned">미지정</span>';
   const backupHtml = task.backupLocation
     ? `<details class="backup-detail"><summary>백업위치 보기</summary><div class="backup-text">${escapeHtml(task.backupLocation)}</div></details>`
     : '';
@@ -594,15 +632,15 @@ function createTaskCard(task) {
         <button class="task-order-btn" type="button" title="아래로" aria-label="아래로" onclick="moveTaskWithinStatus('${task.id}', 1)">↓</button>
       </div>
     </div>
+    <div class="card-title">${escapeHtml(task.name || '')}</div>
     <div class="card-desc">${escapeHtml(task.desc || '')}</div>
-    <div class="card-brand" ${getBrandTextStyleAttr(task)}>브랜드: ${escapeHtml(task.brandName || '-')}</div>
+    <div class="card-brand">${brandHtml}</div>
     <div class="card-meta">
-      <span class="user-inline"><img class="avatar-xs" src="${escapeAttr(userAvatar)}" alt="avatar">담당: ${escapeHtml(assigneeNames.length ? assigneeNames.join(', ') : '-')}</span>
-      <span>${escapeHtml(task.date || '미지정')}</span>
+      <span>${assigneeHtml}</span>
+      ${dateHtml}
     </div>
     <div class="card-actions">
-      ${stickerHtml}
-      <button class="btn btn-outline small" onclick="openTaskEditModal('${task.id}')">수정</button>
+      <button class="card-edit-btn" type="button" onclick="openTaskEditModal('${task.id}')">수정</button>
     </div>
     ${backupHtml}
   `;
@@ -739,6 +777,7 @@ function addTask() {
     document.getElementById('taskName').value = '';
     document.getElementById('taskDesc').value = '';
     document.getElementById('taskBackupLocation').value = '';
+    setInlineOptionalVisible('taskBackupOptional', false);
     closeModal('taskCreateModal');
   });
 }
@@ -913,7 +952,11 @@ function syncUserNameOnTasks(userId, nextName) {
         const data = doc.data() || {};
         const ids = Array.isArray(data.userIds) ? data.userIds : (data.userId ? [data.userId] : []);
         const names = ids
-          .map((id) => (id === userId ? nextName : (localState.users.find((u) => u.id === id)?.name || data.userName || '')))
+          .map((id) => {
+            if (id === userId) return nextName;
+            const matched = localState.users.find((u) => u.id === id);
+            return (matched && matched.name) ? matched.name : (data.userName || '');
+          })
           .filter(Boolean);
         batch.update(doc.ref, {
           userIds: ids,
@@ -1137,7 +1180,11 @@ function saveUser(userId) {
         const data = doc.data() || {};
         const ids = Array.isArray(data.userIds) ? data.userIds : (data.userId ? [data.userId] : []);
         const names = ids
-          .map((id) => (id === userId ? name : (localState.users.find((u) => u.id === id)?.name || data.userName || '')))
+          .map((id) => {
+            if (id === userId) return name;
+            const matched = localState.users.find((u) => u.id === id);
+            return (matched && matched.name) ? matched.name : (data.userName || '');
+          })
           .filter(Boolean);
         batch.update(doc.ref, {
           userIds: ids,
@@ -1219,6 +1266,7 @@ function addBrand() {
     if (input) input.value = '';
     if (backupInput) backupInput.value = '';
     if (colorInput) colorInput.value = 'ocean';
+    setInlineOptionalVisible('brandBackupOptional', false);
     setBrandColorSelection('brandColorInput', 'brandColorPicker', 'ocean');
   });
 }
@@ -1405,10 +1453,15 @@ function renderGymMoodList() {
   list.innerHTML = rows.map((row) => {
     const checks = row.checks || {};
     const doneCount = GYM_CATEGORIES.filter((category) => !!checks[category]).length;
+    const totalCount = GYM_CATEGORIES.length;
+    const progressClass = doneCount === 0 ? 'is-empty' : (doneCount === totalCount ? 'is-complete' : 'is-progress');
+    const progressText = doneCount === totalCount
+      ? `${doneCount}/${totalCount} 완료 ✓`
+      : `${doneCount}/${totalCount} 완료`;
     const checkItems = GYM_CATEGORIES.map((category) => `
-      <label class="gym-check-item">
+      <label class="gym-check-item ${checks[category] ? 'is-checked' : ''}">
         <input type="checkbox" ${checks[category] ? 'checked' : ''} onchange="toggleGymMoodCheck('${row.id}','${category}', this.checked)">
-        <span>${category}</span>
+        <span class="gym-check-label">${category}</span>
       </label>
     `).join('');
     return `
@@ -1420,7 +1473,7 @@ function renderGymMoodList() {
                 <button type="button" class="btn btn-outline small gym-row-edit-btn" onclick="event.stopPropagation(); editGymBranch('${row.id}')">수정</button>
                 <button type="button" class="btn btn-outline small gym-row-delete-btn" onclick="event.stopPropagation(); deleteGymBranch('${row.id}')">지점삭제</button>
                </div>`
-            : `<span class="worker-load-total">${doneCount}/${GYM_CATEGORIES.length} 완료</span>`}
+            : `<span class="gym-progress-badge ${progressClass}">${progressText}</span>`}
         </div>
         <div class="gym-mood-checks">${checkItems}</div>
       </article>
@@ -1494,6 +1547,8 @@ function ensureRefreshClassicLadderReady() {
     refreshClassicLadderInitialized = true;
   }
   renderClassicLadderNameTags();
+  setClassicLadderFogVisible(false, true);
+  hideClassicLadderWinnerOverlay();
 }
 
 function addClassicLadderName(rawName) {
@@ -1558,7 +1613,9 @@ async function startClassicLadderDraw() {
   const drawToken = ++refreshClassicLadderDrawToken;
   const model = generateClassicLadderModel(refreshClassicLadderNames);
   renderClassicLadderBoard(model, { showOutcome: false });
-  setClassicLadderResultText('사다리를 준비중...');
+  hideClassicLadderWinnerOverlay();
+  setClassicLadderFogVisible(true);
+  setClassicLadderResultText('두구두구두구...');
 
   const selectedStart = await runClassicLadderSuspense(model, drawToken);
   if (drawToken !== refreshClassicLadderDrawToken || selectedStart < 0) return;
@@ -1580,9 +1637,11 @@ async function startClassicLadderDraw() {
     pathD: toSvgPathD(traced.points),
     keepTraceShown: true
   });
-  setClassicLadderResultText(`축하합니다! ${refreshClassicLadderNames[selectedStart]} 당첨!`);
+  setClassicLadderFogVisible(false);
+  setClassicLadderResultText(`${refreshClassicLadderNames[selectedStart]}님 당첨! 빠밤!`);
   playWinnerFanfare();
   launchLadderCelebration('classicLadderConfettiLayer');
+  showClassicLadderWinnerOverlay(refreshClassicLadderNames[selectedStart]);
   if (startBtn) startBtn.disabled = false;
 }
 
@@ -1599,7 +1658,7 @@ function runClassicLadderSuspense(model, drawToken) {
       if (model.playerCount > 1 && idx === lastIdx) idx = (idx + 1) % model.playerCount;
       lastIdx = idx;
       renderClassicLadderBoard(model, { showOutcome: false, highlightStart: idx });
-      setClassicLadderResultText('누가 당첨될지 확인중...');
+      setClassicLadderResultText('두구두구두구...');
       if (Date.now() - startAt < LADDER_SUSPENSE_DURATION_MS) {
         setTimeout(tick, 120);
       } else {
@@ -1814,7 +1873,7 @@ async function startLadderDraw() {
   renderLadderBoard(model, { showOutcome: false });
   hideLadderWinnerOverlay();
   setLadderFogVisible(true);
-  setLadderResultText('미로를 생성중...');
+  setLadderResultText('두구두구두구...');
 
   const selectedStart = await runLadderSuspense(model, drawToken);
   if (drawToken !== refreshLadderDrawToken || selectedStart < 0) return;
@@ -1839,7 +1898,7 @@ async function startLadderDraw() {
     runnerPoint: traced.points[traced.points.length - 1]
   });
   setLadderFogVisible(false);
-  setLadderResultText(`축하합니다! ${refreshLadderNames[selectedStart]} 당첨!`);
+  setLadderResultText(`${refreshLadderNames[selectedStart]}님 당첨! 빠밤!`);
   playWinnerFanfare();
   launchLadderCelebration();
   showLadderWinnerOverlay(refreshLadderNames[selectedStart]);
@@ -1859,7 +1918,7 @@ function runLadderSuspense(model, drawToken) {
       if (model.playerCount > 1 && idx === lastIdx) idx = (idx + 1) % model.playerCount;
       lastIdx = idx;
       renderLadderBoard(model, { showOutcome: false, highlightStart: idx });
-      setLadderResultText('누가 당첨될지 확인중...');
+      setLadderResultText('두구두구두구...');
       if (Date.now() - startAt < LADDER_SUSPENSE_DURATION_MS) {
         setTimeout(tick, 120);
       } else {
@@ -1873,26 +1932,29 @@ function runLadderSuspense(model, drawToken) {
 function generateLadderModel(names) {
   const playerNames = Array.isArray(names) ? names.slice() : [];
   const playerCount = playerNames.length;
-  const gridCols = Math.min(MAZE_MAX_COLS, Math.max(MAZE_MIN_COLS, (playerCount * 2) + 10));
-  const gridRows = Math.max(MAZE_MIN_ROWS, Math.min(MAZE_MAX_ROWS, 12 + playerCount + Math.floor(Math.random() * 3)));
+  const gridCols = Math.min(MAZE_MAX_COLS, Math.max(MAZE_MIN_COLS, (playerCount * 2) + 12));
+  const gridRows = Math.max(MAZE_MIN_ROWS, Math.min(MAZE_MAX_ROWS, 13 + playerCount + Math.floor(Math.random() * 4)));
   const layout = buildLadderLayout(playerCount, gridRows, gridCols);
   const starts = layout.startCols.slice();
   const shuffledExitSlots = shuffleArray(Array.from({ length: playerCount }, (_, idx) => idx));
+  const mazeGraph = buildMazeGraph(gridCols, gridRows);
 
   const playerPaths = [];
   const playerEnds = [];
   for (let idx = 0; idx < playerCount; idx += 1) {
     const targetSlot = shuffledExitSlots[idx];
     const targetCol = starts[targetSlot];
-    playerPaths.push(buildMazePath(starts[idx], targetCol, gridRows, gridCols));
+    const route = findMazeRoute(mazeGraph, starts[idx], targetCol);
+    playerPaths.push(route.length ? route : buildFallbackMazePath(starts[idx], targetCol, gridRows, gridCols));
     playerEnds.push(targetSlot);
   }
 
   const winnerStart = Math.floor(Math.random() * playerCount);
   const winningBottom = playerEnds[winnerStart];
   const bottomLabels = Array.from({ length: playerCount }, (_, idx) => (idx === winningBottom ? '당첨' : '꽝'));
-  const walls = buildMazeWalls(gridCols, gridRows, playerPaths);
-  return { playerNames, playerCount, gridCols, gridRows, starts, playerPaths, playerEnds, walls, bottomLabels, winningBottom };
+  const walls = buildMazeWalls(gridCols, gridRows, mazeGraph.openEdges);
+  const canopies = buildForestCanopies(gridCols, gridRows, playerPaths);
+  return { playerNames, playerCount, gridCols, gridRows, starts, playerPaths, playerEnds, walls, canopies, bottomLabels, winningBottom };
 }
 
 function traceLadder(model, startIndex) {
@@ -1921,27 +1983,29 @@ function buildLadderLayout(playerCount, rowCount, gridCols) {
   return { width, top, bottom, left, right, mazeCols, mazeRowGap, rowGap, startCols, topXs };
 }
 
-function buildMazePath(startCol, targetCol, rowCount, gridCols) {
+function buildFallbackMazePath(startCol, targetCol, rowCount, gridCols) {
   const cells = [{ x: startCol, y: 0 }];
   let x = startCol;
   let y = 0;
-  const maxCol = Math.max(1, gridCols - 2);
+  const minCol = 0;
+  const maxCol = Math.max(1, gridCols - 1);
 
   while (y < rowCount - 1) {
     const rowsLeft = (rowCount - 1) - y;
-    const needAlign = Math.abs(targetCol - x) > Math.max(1, Math.floor(rowsLeft / 3));
-    if (needAlign || Math.random() < 0.48) {
+    const needAlign = Math.abs(targetCol - x) > Math.max(1, Math.floor(rowsLeft / 2.3));
+    const sideChance = needAlign ? 0.85 : 0.5;
+    if (Math.random() < sideChance) {
       let dir = targetCol === x ? (Math.random() < 0.5 ? -1 : 1) : Math.sign(targetCol - x);
       if (!needAlign && Math.random() < 0.24) dir *= -1;
       const stride = 1 + Math.floor(Math.random() * 2);
-      const nextX = Math.max(1, Math.min(maxCol, x + (dir * stride)));
+      const nextX = Math.max(minCol, Math.min(maxCol, x + (dir * stride)));
       if (nextX !== x) {
         x = nextX;
         cells.push({ x, y });
       }
     }
-    let down = 1 + (Math.random() < 0.28 ? 1 : 0);
-    if (rowsLeft <= 3) down = 1;
+    let down = 1 + (Math.random() < 0.2 ? 1 : 0);
+    if (rowsLeft <= 4) down = 1;
     y = Math.min(rowCount - 1, y + down);
     cells.push({ x, y });
   }
@@ -1950,6 +2014,92 @@ function buildMazePath(startCol, targetCol, rowCount, gridCols) {
     x = targetCol;
     cells.push({ x, y });
   }
+  return compactMazePath(cells);
+}
+
+function buildMazeGraph(gridCols, gridRows) {
+  const cols = Math.max(2, Number(gridCols || MAZE_MIN_COLS));
+  const rows = Math.max(2, Number(gridRows || MAZE_MIN_ROWS));
+  const visited = new Set();
+  const openEdges = new Set();
+  const startX = Math.floor(Math.random() * cols);
+  const startY = Math.floor(Math.random() * rows);
+  const stack = [{ x: startX, y: startY }];
+  visited.add(`${startX}:${startY}`);
+
+  while (stack.length) {
+    const current = stack[stack.length - 1];
+    const neighbors = getMazeNeighbors(current.x, current.y, cols, rows)
+      .filter((node) => !visited.has(`${node.x}:${node.y}`));
+    if (!neighbors.length) {
+      stack.pop();
+      continue;
+    }
+    const next = neighbors[Math.floor(Math.random() * neighbors.length)];
+    openEdges.add(toMazeEdgeKey(current.x, current.y, next.x, next.y));
+    visited.add(`${next.x}:${next.y}`);
+    stack.push(next);
+  }
+
+  return { cols, rows, openEdges };
+}
+
+function getMazeNeighbors(x, y, cols, rows) {
+  const neighbors = [];
+  if (x > 0) neighbors.push({ x: x - 1, y });
+  if (x < cols - 1) neighbors.push({ x: x + 1, y });
+  if (y > 0) neighbors.push({ x, y: y - 1 });
+  if (y < rows - 1) neighbors.push({ x, y: y + 1 });
+  return neighbors;
+}
+
+function toMazeEdgeKey(x1, y1, x2, y2) {
+  const a = (y1 * 1000) + x1;
+  const b = (y2 * 1000) + x2;
+  if (a <= b) return `${x1}:${y1}|${x2}:${y2}`;
+  return `${x2}:${y2}|${x1}:${y1}`;
+}
+
+function findMazeRoute(mazeGraph, startCol, targetCol) {
+  const cols = Number(mazeGraph && mazeGraph.cols);
+  const rows = Number(mazeGraph && mazeGraph.rows);
+  const openEdges = mazeGraph && mazeGraph.openEdges;
+  if (!cols || !rows || !openEdges) return [];
+
+  const sx = Math.max(0, Math.min(cols - 1, Number(startCol)));
+  const tx = Math.max(0, Math.min(cols - 1, Number(targetCol)));
+  const startKey = `${sx}:0`;
+  const endKey = `${tx}:${rows - 1}`;
+  const queue = [{ x: sx, y: 0 }];
+  const visited = new Set([startKey]);
+  const prev = new Map();
+
+  while (queue.length) {
+    const node = queue.shift();
+    const nodeKey = `${node.x}:${node.y}`;
+    if (nodeKey === endKey) break;
+    const neighbors = getMazeNeighbors(node.x, node.y, cols, rows);
+    for (let i = 0; i < neighbors.length; i += 1) {
+      const next = neighbors[i];
+      const nextKey = `${next.x}:${next.y}`;
+      if (visited.has(nextKey)) continue;
+      if (!openEdges.has(toMazeEdgeKey(node.x, node.y, next.x, next.y))) continue;
+      visited.add(nextKey);
+      prev.set(nextKey, nodeKey);
+      queue.push(next);
+    }
+  }
+
+  if (!visited.has(endKey)) return [];
+  const cells = [];
+  let cursor = endKey;
+  while (cursor) {
+    const [x, y] = cursor.split(':').map(Number);
+    cells.push({ x, y });
+    if (cursor === startKey) break;
+    cursor = prev.get(cursor);
+  }
+  cells.reverse();
   return compactMazePath(cells);
 }
 
@@ -1973,21 +2123,46 @@ function shuffleArray(arr) {
   return copy;
 }
 
-function buildMazeWalls(gridCols, gridRows, playerPaths) {
+function buildMazeWalls(gridCols, gridRows, openEdges) {
   const walls = [];
+  const cols = Math.max(2, Number(gridCols || MAZE_MIN_COLS));
+  const rows = Math.max(2, Number(gridRows || MAZE_MIN_ROWS));
+  const edgeSet = openEdges instanceof Set ? openEdges : new Set();
+
+  for (let y = 0; y < rows; y += 1) {
+    for (let x = 0; x < cols; x += 1) {
+      if (x < cols - 1) {
+        const key = toMazeEdgeKey(x, y, x + 1, y);
+        if (!edgeSet.has(key)) walls.push({ x1: x, y1: y, x2: x + 1, y2: y });
+      }
+      if (y < rows - 1) {
+        const key = toMazeEdgeKey(x, y, x, y + 1);
+        if (!edgeSet.has(key)) walls.push({ x1: x, y1: y, x2: x, y2: y + 1 });
+      }
+    }
+  }
+  return walls;
+}
+
+function buildForestCanopies(gridCols, gridRows, playerPaths) {
   const pathCells = new Set();
   (playerPaths || []).forEach((path) => {
     (path || []).forEach((cell) => pathCells.add(`${cell.x}:${cell.y}`));
   });
-
-  for (let y = 1; y < gridRows - 1; y += 1) {
-    for (let x = 1; x < gridCols - 2; x += 1) {
-      if (pathCells.has(`${x}:${y}`)) continue;
-      if (Math.random() < 0.18) walls.push({ t: 'h', x1: x, y1: y, x2: x + 1, y2: y });
-      if (Math.random() < 0.13) walls.push({ t: 'v', x1: x, y1: y, x2: x, y2: y + 1 });
-    }
+  const canopies = [];
+  const count = Math.max(18, Math.floor((gridCols * gridRows) * 0.12));
+  for (let i = 0; i < count; i += 1) {
+    const x = 1 + Math.floor(Math.random() * Math.max(1, gridCols - 2));
+    const y = 1 + Math.floor(Math.random() * Math.max(1, gridRows - 2));
+    if (pathCells.has(`${x}:${y}`)) continue;
+    canopies.push({
+      x,
+      y,
+      r: 5 + Math.random() * 7,
+      tone: 1 + Math.floor(Math.random() * 3)
+    });
   }
-  return walls;
+  return canopies;
 }
 
 function mazeCellToPoint(model, cell) {
@@ -2012,6 +2187,11 @@ function renderLadderBoard(model, options = {}) {
   const { showOutcome = false, highlightStart = -1, highlightEnd = -1, pathD = '', keepTraceShown = false, runnerPoint = null } = options;
   const layout = buildLadderLayout(playerCount, model.gridRows, model.gridCols);
 
+  const canopies = (model.canopies || [])
+    .map((node) => {
+      const p = mazeCellToPoint(model, { x: node.x, y: node.y });
+      return `<circle class="maze-canopy tone-${node.tone}" cx="${p.x}" cy="${p.y}" r="${node.r.toFixed(2)}"></circle>`;
+    }).join('');
   const mazeWalls = (model.walls || [])
     .map((wall) => {
       const p1 = mazeCellToPoint(model, { x: wall.x1, y: wall.y1 });
@@ -2051,11 +2231,12 @@ function renderLadderBoard(model, options = {}) {
     ? `<path id="ladderTracePath" class="ladder-trace ${keepTraceShown ? 'done' : ''}" d="${pathD}"></path>`
     : '';
   const runner = runnerPoint
-    ? `<g id="mazeRunner" class="maze-runner" transform="translate(${runnerPoint.x} ${runnerPoint.y})"><circle r="12"></circle><text y="5" text-anchor="middle">🐭</text></g>`
+    ? `<g id="mazeRunner" class="maze-runner" transform="translate(${runnerPoint.x} ${runnerPoint.y})"><circle r="12"></circle><image href="assets/hotdog-walker.png" x="-13" y="-13" width="26" height="26" preserveAspectRatio="xMidYMid meet"></image></g>`
     : '';
 
   svg.innerHTML = `
     <rect class="ladder-bg" x="0" y="0" width="${layout.width}" height="520" rx="16" ry="16"></rect>
+    ${canopies}
     ${guideRails}
     ${mazeWalls}
     ${trace}
@@ -2136,12 +2317,32 @@ function setLadderFogVisible(visible, instant = false) {
   }, 640);
 }
 
+function setClassicLadderFogVisible(visible, instant = false) {
+  const fog = document.getElementById('classicLadderFogLayer');
+  if (!fog) return;
+  if (visible) {
+    fog.classList.remove('hidden', 'reveal');
+    return;
+  }
+  if (instant) {
+    fog.classList.add('hidden');
+    fog.classList.remove('reveal');
+    return;
+  }
+  fog.classList.remove('hidden');
+  fog.classList.add('reveal');
+  setTimeout(() => {
+    fog.classList.add('hidden');
+    fog.classList.remove('reveal');
+  }, 640);
+}
+
 function showLadderWinnerOverlay(name) {
   const overlay = document.getElementById('ladderWinnerOverlay');
-  const nameEl = document.getElementById('ladderWinnerName');
-  if (!overlay || !nameEl) return;
+  const lineEl = document.getElementById('ladderWinnerLine');
+  if (!overlay || !lineEl) return;
   if (refreshLadderWinnerTimer) clearTimeout(refreshLadderWinnerTimer);
-  nameEl.textContent = String(name || '');
+  lineEl.textContent = `${String(name || '')}님 당첨! 빠밤!`;
   overlay.classList.remove('hidden', 'show');
   void overlay.offsetWidth;
   overlay.classList.add('show');
@@ -2158,6 +2359,33 @@ function hideLadderWinnerOverlay() {
   if (refreshLadderWinnerTimer) {
     clearTimeout(refreshLadderWinnerTimer);
     refreshLadderWinnerTimer = null;
+  }
+  overlay.classList.add('hidden');
+  overlay.classList.remove('show');
+}
+
+function showClassicLadderWinnerOverlay(name) {
+  const overlay = document.getElementById('classicLadderWinnerOverlay');
+  const lineEl = document.getElementById('classicLadderWinnerLine');
+  if (!overlay || !lineEl) return;
+  if (refreshClassicLadderWinnerTimer) clearTimeout(refreshClassicLadderWinnerTimer);
+  lineEl.textContent = `${String(name || '')}님 당첨! 빠밤!`;
+  overlay.classList.remove('hidden', 'show');
+  void overlay.offsetWidth;
+  overlay.classList.add('show');
+  refreshClassicLadderWinnerTimer = setTimeout(() => {
+    overlay.classList.add('hidden');
+    overlay.classList.remove('show');
+    refreshClassicLadderWinnerTimer = null;
+  }, LADDER_WINNER_OVERLAY_MS);
+}
+
+function hideClassicLadderWinnerOverlay() {
+  const overlay = document.getElementById('classicLadderWinnerOverlay');
+  if (!overlay) return;
+  if (refreshClassicLadderWinnerTimer) {
+    clearTimeout(refreshClassicLadderWinnerTimer);
+    refreshClassicLadderWinnerTimer = null;
   }
   overlay.classList.add('hidden');
   overlay.classList.remove('show');
@@ -2407,6 +2635,8 @@ function resetRefreshModal() {
     classicLadderResult.classList.remove('show');
   }
   if (classicLadderConfetti) classicLadderConfetti.innerHTML = '';
+  setClassicLadderFogVisible(false, true);
+  hideClassicLadderWinnerOverlay();
   renderClassicLadderBoard(null);
   renderClassicLadderNameTags();
 
@@ -2563,6 +2793,7 @@ function openTaskEditModal(taskId) {
   if (userSelect1) userSelect1.value = ids[0] || '';
   if (userSelect2) userSelect2.value = ids[1] || '';
 
+  setInlineOptionalVisible('editTaskBackupOptional', Boolean(String(task.backupLocation || '').trim()));
   openModal('taskEditModal');
 }
 
@@ -2684,6 +2915,64 @@ function applyThemeMode() {
     btn.title = title;
     btn.setAttribute('aria-label', title);
   }
+  syncSharedMemoThemeStorage();
+  syncSharedMemoFrameTheme();
+}
+
+function syncSharedMemoThemeStorage() {
+  try {
+    localStorage.setItem(SHARED_MEMO_THEME_STORAGE_KEY, localState.themeMode === 'dark' ? 'dark' : 'light');
+  } catch (err) {
+    console.warn('shared memo theme save failed', err);
+  }
+}
+
+function syncSharedMemoFrameTheme() {
+  const frame = document.getElementById('sharedNotionMemoFrame');
+  if (!frame || !frame.contentWindow) return;
+  const theme = localState.themeMode === 'dark' ? 'dark' : 'light';
+  try {
+    const doc = frame.contentWindow.document;
+    if (doc && doc.documentElement) {
+      doc.documentElement.setAttribute('data-theme', theme);
+    }
+    const themeBtn = doc && typeof doc.getElementById === 'function'
+      ? doc.getElementById('theme-btn')
+      : null;
+    if (themeBtn) {
+      themeBtn.textContent = theme === 'dark' ? '🌞' : '🌙';
+    }
+  } catch (err) {
+    // iframe not ready yet
+  }
+}
+
+let sharedMemoHintTimer = null;
+
+function setSharedMemoHintVisible(visible) {
+  const hint = document.getElementById('sharedMemoFrameHint');
+  if (!hint) return;
+  hint.classList.toggle('hidden', !visible);
+}
+
+function handleSharedMemoFrameLoad() {
+  if (sharedMemoHintTimer) {
+    clearTimeout(sharedMemoHintTimer);
+    sharedMemoHintTimer = null;
+  }
+  setSharedMemoHintVisible(false);
+  syncSharedMemoFrameTheme();
+}
+
+function reloadSharedMemoFrame() {
+  const frame = document.getElementById('sharedNotionMemoFrame');
+  if (!frame) return;
+  const url = new URL('memo.html', window.location.href);
+  url.searchParams.set('_ts', Date.now().toString());
+  setSharedMemoHintVisible(false);
+  frame.src = url.toString();
+  if (sharedMemoHintTimer) clearTimeout(sharedMemoHintTimer);
+  sharedMemoHintTimer = setTimeout(() => setSharedMemoHintVisible(true), 2500);
 }
 
 function openModal(id) {
@@ -2701,6 +2990,18 @@ function openModal(id) {
   }
   if (id === 'brandListModal') {
     toggleBrandEditMode(false);
+  }
+  if (id === 'taskCreateModal') {
+    const input = document.getElementById('taskBackupLocation');
+    setInlineOptionalVisible('taskBackupOptional', Boolean(String(input && input.value ? input.value : '').trim()));
+  }
+  if (id === 'taskEditModal') {
+    const input = document.getElementById('editTaskBackupLocation');
+    setInlineOptionalVisible('editTaskBackupOptional', Boolean(String(input && input.value ? input.value : '').trim()));
+  }
+  if (id === 'brandListModal') {
+    const input = document.getElementById('brandBackupInput');
+    setInlineOptionalVisible('brandBackupOptional', Boolean(String(input && input.value ? input.value : '').trim()));
   }
   if (id === 'figmaBoardModal') {
     const editor = document.getElementById('figmaBoardEditor');
@@ -2733,6 +3034,29 @@ function closeModal(id) {
 
 function closeOnBackdrop(event, modalId) {
   if (event.target.id === modalId) closeModal(modalId);
+}
+
+function setInlineOptionalVisible(panelId, visible) {
+  const panel = document.getElementById(panelId);
+  if (!panel) return;
+  panel.classList.toggle('hidden', !visible);
+  const wrap = panel.closest('.modal-inline-optional');
+  const toggleBtn = wrap ? wrap.querySelector('.modal-inline-toggle') : null;
+  if (toggleBtn) {
+    toggleBtn.textContent = visible ? '백업위치 숨기기' : '백업위치 입력';
+    toggleBtn.setAttribute('aria-expanded', visible ? 'true' : 'false');
+  }
+}
+
+function toggleInlineOptional(panelId) {
+  const panel = document.getElementById(panelId);
+  if (!panel) return;
+  const nextVisible = panel.classList.contains('hidden');
+  setInlineOptionalVisible(panelId, nextVisible);
+  if (nextVisible) {
+    const input = panel.querySelector('input, textarea');
+    if (input) setTimeout(() => input.focus(), 0);
+  }
 }
 
 function switchView(mode) {
@@ -2933,7 +3257,9 @@ function addNewMemo() {
   db.collection(COLLECTIONS.memos).add({
     title: '새 메모 제목',
     content: '',
-    isCollapsed: false,
+    isCollapsed: true,
+    pinned: false,
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
     createdAt: firebase.firestore.FieldValue.serverTimestamp()
   });
 }
@@ -2964,13 +3290,27 @@ function maybeRenderMemos() {
 
 function renderMemos() {
   const grid = document.getElementById('memoGrid');
-  grid.innerHTML = localState.memos.map((memo) => {
+  if (!grid) return;
+
+  const filteredMemos = getFilteredMemos();
+  renderMemoToolbarState(filteredMemos.length, localState.memos.length);
+
+  if (!filteredMemos.length) {
+    const hasQuery = Boolean((localState.memoSearchQuery || '').trim());
+    grid.innerHTML = `<article class="memo-card memo-card-empty">${hasQuery ? '검색 결과가 없습니다.' : '등록된 메모가 없습니다.'}</article>`;
+    return;
+  }
+
+  grid.innerHTML = filteredMemos.map((memo) => {
+    const isPinned = Boolean(memo.pinned);
+    const isCollapsed = memo.isCollapsed !== false;
     return `
-      <article class="memo-card ${memo.isCollapsed ? 'collapsed' : ''}">
+      <article class="memo-card ${isCollapsed ? 'collapsed' : ''} ${isPinned ? 'is-pinned' : ''}">
         <div class="memo-header">
           <input class="memo-title" value="${escapeAttr(memo.title || '')}" onblur="updateMemo('${memo.id}', 'title', this.value)">
           <div class="memo-tools">
-            <button class="btn btn-outline small" onclick="toggleMemo('${memo.id}', ${memo.isCollapsed ? 'false' : 'true'})">${memo.isCollapsed ? '펼치기' : '접기'}</button>
+            <button class="btn btn-outline small" onclick="toggleMemoPin('${memo.id}', ${isPinned ? 'false' : 'true'})">${isPinned ? '고정해제' : '상단고정'}</button>
+            <button class="btn btn-outline small" onclick="toggleMemo('${memo.id}', ${isCollapsed ? 'false' : 'true'})">${isCollapsed ? '펼치기' : '접기'}</button>
             <button class="btn btn-outline small" onclick="deleteMemo('${memo.id}')">삭제</button>
           </div>
         </div>
@@ -2978,17 +3318,125 @@ function renderMemos() {
           <textarea id="memo-body-${memo.id}" class="memo-body note-editor-pane" onfocus="markMemoTyping()" onblur="clearMemoTyping()" oninput="handleMemoInput('${memo.id}', this.value)" onpaste="handleMemoPaste(event, '${memo.id}')">${escapeHtml(memo.content || '')}</textarea>
           <div id="memo-view-${memo.id}" class="note-view-pane note-live-preview">${renderNoteElements(memo.content || '')}</div>
         </div>
+        <div class="memo-foot-meta">${escapeHtml(formatMemoUpdatedAt(memo))}</div>
       </article>
     `;
   }).join('');
 }
 
+function getFirebaseTimeMs(value) {
+  if (!value) return 0;
+  if (typeof value.toMillis === 'function') return value.toMillis();
+  if (typeof value.seconds === 'number') return value.seconds * 1000;
+  const parsed = Date.parse(String(value));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function getMemoUpdatedTimeMs(memo) {
+  return getFirebaseTimeMs(memo.updatedAt) || getFirebaseTimeMs(memo.createdAt) || 0;
+}
+
+function getFilteredMemos() {
+  const query = String(localState.memoSearchQuery || '').trim().toLowerCase();
+  const sort = localState.memoSort || 'updated_desc';
+  const list = localState.memos.slice().filter((memo) => {
+    if (!query) return true;
+    const haystack = `${memo.title || ''}\n${memo.content || ''}`.toLowerCase();
+    return haystack.includes(query);
+  });
+
+  list.sort((a, b) => {
+    const aPinned = a.pinned ? 1 : 0;
+    const bPinned = b.pinned ? 1 : 0;
+    if (aPinned !== bPinned) return bPinned - aPinned;
+
+    if (sort === 'title_asc') {
+      return String(a.title || '').localeCompare(String(b.title || ''), 'ko');
+    }
+
+    const aTime = getMemoUpdatedTimeMs(a);
+    const bTime = getMemoUpdatedTimeMs(b);
+    if (sort === 'updated_asc') return aTime - bTime;
+    return bTime - aTime;
+  });
+
+  return list;
+}
+
+function formatMemoUpdatedAt(memo) {
+  const timeMs = getMemoUpdatedTimeMs(memo);
+  if (!timeMs) return '수정 시각 없음';
+  const date = new Date(timeMs);
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  const hh = String(date.getHours()).padStart(2, '0');
+  const mm = String(date.getMinutes()).padStart(2, '0');
+  return `최근 수정: ${y}.${m}.${d} ${hh}:${mm}`;
+}
+
+function renderMemoToolbarState(visibleCount, totalCount) {
+  const countBadge = document.getElementById('memoCountBadge');
+  if (countBadge) countBadge.textContent = `${visibleCount} / ${totalCount}`;
+
+  const searchInput = document.getElementById('memoSearchInput');
+  if (searchInput && searchInput.value !== localState.memoSearchQuery) {
+    searchInput.value = localState.memoSearchQuery;
+  }
+
+  const sortSelect = document.getElementById('memoSortSelect');
+  if (sortSelect && sortSelect.value !== localState.memoSort) {
+    sortSelect.value = localState.memoSort;
+  }
+}
+
+function setMemoSearchQuery(value) {
+  localState.memoSearchQuery = String(value || '');
+  renderMemos();
+}
+
+function setMemoSort(value) {
+  localState.memoSort = String(value || 'updated_desc');
+  renderMemos();
+}
+
+function clearMemoSearch() {
+  localState.memoSearchQuery = '';
+  renderMemos();
+}
+
 function renderNoteElements(content) {
-  const safeContent = content || '';
+  const safeContent = String(content || '').replace(/\r\n?/g, '\n');
   const lines = safeContent.split('\n');
-  return lines
-    .map((line) => `<div class="note-line">${renderLineWithLinks(line) || '<br>'}</div>`)
-    .join('');
+  const html = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index] || '';
+    const toggleStart = line.match(/^\s*::toggle\s*(.*)$/i);
+    if (toggleStart) {
+      const title = String(toggleStart[1] || '').trim() || '토글';
+      index += 1;
+      const body = [];
+      while (index < lines.length && !/^\s*::end\s*$/i.test(lines[index] || '')) {
+        body.push(`<div class="note-line">${renderLineWithLinks(lines[index] || '') || '<br>'}</div>`);
+        index += 1;
+      }
+      if (index < lines.length && /^\s*::end\s*$/i.test(lines[index] || '')) index += 1;
+      html.push(`<details class="note-toggle"><summary>${escapeHtml(title)}</summary><div class="note-toggle-body">${body.join('')}</div></details>`);
+      continue;
+    }
+
+    if (/^\s*::end\s*$/i.test(line)) {
+      index += 1;
+      continue;
+    }
+
+    html.push(`<div class="note-line">${renderLineWithLinks(line) || '<br>'}</div>`);
+    index += 1;
+  }
+
+  return html.join('');
 }
 
 function renderNotePreview(targetId, content) {
@@ -2999,7 +3447,10 @@ function renderNotePreview(targetId, content) {
 function updateMemo(id, field, value) {
   const memo = localState.memos.find((m) => m.id === id);
   if (memo && memo[field] === value) return;
-  db.collection(COLLECTIONS.memos).doc(id).update({ [field]: value });
+  db.collection(COLLECTIONS.memos).doc(id).update({
+    [field]: value,
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+  });
 }
 
 function scheduleMemoSave(id, value) {
@@ -3054,7 +3505,11 @@ function deleteMemo(id) {
 }
 
 function toggleMemo(id, collapsed) {
-  db.collection(COLLECTIONS.memos).doc(id).update({ isCollapsed: collapsed });
+  updateMemo(id, 'isCollapsed', collapsed);
+}
+
+function toggleMemoPin(id, pinned) {
+  updateMemo(id, 'pinned', pinned);
 }
 
 function resolveUserName(task) {
@@ -3119,37 +3574,12 @@ function insertMemoLink(memoId) {
   textarea.focus();
 }
 
-function insertSharedText(text) {
-  const textarea = document.getElementById('archiveStaticMemo');
-  if (!textarea) return;
-  insertTextAtCursor(textarea, text);
-  textarea.focus();
-  scheduleSharedMemoSave();
-}
-
-function insertSharedLink() {
-  const textarea = document.getElementById('archiveStaticMemo');
-  if (!textarea) return;
-  wrapSelectionWithLink(textarea);
-  scheduleSharedMemoSave();
-  textarea.focus();
-}
-
 function handleMemoPaste(event, memoId) {
   handleImagePaste(event, (markdownImage) => {
     const textarea = document.getElementById(`memo-body-${memoId}`);
     if (!textarea) return;
     insertTextAtCursor(textarea, markdownImage);
     handleMemoInput(memoId, textarea.value);
-  });
-}
-
-function handleSharedPaste(event) {
-  handleImagePaste(event, (markdownImage) => {
-    const textarea = document.getElementById('archiveStaticMemo');
-    if (!textarea) return;
-    insertTextAtCursor(textarea, markdownImage);
-    scheduleSharedMemoSave();
   });
 }
 
@@ -3169,18 +3599,6 @@ function handleImagePaste(event, onImageReady) {
     onImageReady(`![붙여넣기 이미지](${dataUrl})`);
   };
   reader.readAsDataURL(file);
-}
-
-function saveSharedMemo() {
-  const editor = document.getElementById('archiveStaticMemo');
-  if (!editor) return;
-  if (localState.sharedMemoSaveTimer) {
-    clearTimeout(localState.sharedMemoSaveTimer);
-    localState.sharedMemoSaveTimer = null;
-  }
-  const content = editor.value;
-  db.collection(COLLECTIONS.config).doc('sharedMemo').set({ content }, { merge: true });
-  renderSharedView(content);
 }
 
 function saveFigmaBoard() {
@@ -3203,22 +3621,6 @@ function scheduleFigmaBoardSave() {
   localState.figmaBoardSaveTimer = setTimeout(() => {
     saveFigmaBoard();
   }, 300);
-}
-
-function scheduleSharedMemoSave() {
-  const editor = document.getElementById('archiveStaticMemo');
-  if (!editor) return;
-  renderSharedView(editor.value);
-  if (localState.sharedMemoSaveTimer) clearTimeout(localState.sharedMemoSaveTimer);
-  localState.sharedMemoSaveTimer = setTimeout(() => {
-    saveSharedMemo();
-  }, 300);
-}
-
-function renderSharedView(content) {
-  const view = document.getElementById('sharedView');
-  if (!view) return;
-  view.innerHTML = renderNoteElements(content || '');
 }
 
 function renderLineWithLinks(line) {
@@ -3388,6 +3790,96 @@ function getBrandTextStyleAttr(task) {
   return `style="color: ${escapeAttr(color)};"`;
 }
 
+function initModalChrome() {
+  const subtitles = {
+    taskCreateModal: '새 작업 정보를 입력하고 저장합니다.',
+    workerListModal: '프로필 정보를 수정하고 저장합니다.',
+    registerModal: '신규 작업자 계정을 등록합니다.',
+    loginModal: '계정을 선택해 로그인합니다.',
+    adminModal: '작업자와 작업 데이터를 관리합니다.',
+    taskEditModal: '선택한 작업의 정보를 수정합니다.',
+    brandListModal: '브랜드 목록과 백업 위치를 관리합니다.',
+    refreshModal: '리프레시 도구를 선택해 실행합니다.',
+    figmaBoardModal: '피그마 공유 메모를 관리합니다.',
+    figmaLinkModal: '피그마 링크를 확인합니다.'
+  };
+
+  document.querySelectorAll('.modal').forEach((modal) => {
+    if (!modal || modal.id === 'gymMoodModal') return;
+    const content = modal.querySelector('.modal-content');
+    if (!content || content.dataset.chromeReady === '1') return;
+
+    const closeBtn = Array.from(content.children).find((el) => el.classList && el.classList.contains('close-btn')) || null;
+    const brandHead = Array.from(content.children).find((el) => el.classList && el.classList.contains('brand-modal-head')) || null;
+    const titleFromHead = brandHead ? brandHead.querySelector('h3') : null;
+    const titleEl = titleFromHead || (Array.from(content.children).find((el) => el.tagName === 'H3') || null);
+    const titleText = (titleEl ? titleEl.textContent : '').trim() || '모달';
+
+    if (brandHead) {
+      brandHead.remove();
+    } else if (titleEl) {
+      titleEl.remove();
+    }
+
+    const auxActions = Array.from(content.children)
+      .filter((el) => {
+        if (!el || !el.classList) return false;
+        if (el.classList.contains('close-btn')) return false;
+        if (!el.classList.contains('btn')) return false;
+        return el.classList.contains('btn-outline');
+      });
+    if (modal.id === 'figmaLinkModal') {
+      const openHere = content.querySelector('#figmaLinkOpenHere');
+      if (openHere) {
+        auxActions.push(openHere);
+      }
+    }
+    auxActions.forEach((el) => el.classList.remove('brand-edit-floating'));
+
+    const header = document.createElement('div');
+    header.className = 'modal-header';
+    const left = document.createElement('div');
+    left.className = 'modal-header-left';
+    const titleNode = document.createElement('h3');
+    titleNode.className = 'modal-title';
+    titleNode.textContent = titleText;
+    const subtitleNode = document.createElement('p');
+    subtitleNode.className = 'modal-subtitle';
+    subtitleNode.textContent = subtitles[modal.id] || '필요한 항목을 입력해 주세요.';
+    left.appendChild(titleNode);
+    left.appendChild(subtitleNode);
+
+    const right = document.createElement('div');
+    right.className = 'modal-header-right';
+    auxActions.forEach((el) => right.appendChild(el));
+    if (closeBtn) {
+      closeBtn.classList.add('modal-close-round');
+      closeBtn.removeAttribute('style');
+      right.appendChild(closeBtn);
+    }
+    header.appendChild(left);
+    header.appendChild(right);
+
+    const body = document.createElement('div');
+    body.className = 'modal-body';
+    while (content.firstChild) body.appendChild(content.firstChild);
+
+    const footer = document.createElement('div');
+    footer.className = 'modal-footer hidden';
+    const directFooterButtons = Array.from(body.children)
+      .filter((el) => el.matches && el.matches('button.btn.full, .btn.btn-primary.full'));
+    if (directFooterButtons.length) {
+      directFooterButtons.forEach((btn) => footer.appendChild(btn));
+      footer.classList.remove('hidden');
+    }
+
+    content.appendChild(header);
+    content.appendChild(body);
+    content.appendChild(footer);
+    content.dataset.chromeReady = '1';
+  });
+}
+
 function getCurrentMonthValue() {
   const now = new Date();
   const y = now.getFullYear();
@@ -3395,9 +3887,12 @@ function getCurrentMonthValue() {
   return `${y}-${m}`;
 }
 
-const sharedMemoEl = document.getElementById('archiveStaticMemo');
-if (sharedMemoEl) {
-  sharedMemoEl.addEventListener('input', scheduleSharedMemoSave);
+const sharedNotionFrameEl = document.getElementById('sharedNotionMemoFrame');
+if (sharedNotionFrameEl) {
+  sharedNotionFrameEl.addEventListener('load', () => {
+    syncSharedMemoFrameTheme();
+  });
+  reloadSharedMemoFrame();
 }
 const figmaBoardEl = document.getElementById('figmaBoardEditor');
 if (figmaBoardEl) {
@@ -3413,6 +3908,7 @@ if (regNameEl) {
   });
 }
 updateSignupAvatarPreview();
+initModalChrome();
 initSlashEmojiPicker();
 initBrandColorPickerPopover();
 initMemoWalkerGame();
@@ -3603,6 +4099,7 @@ function hydrateThemeMode() {
 }
 
 function syncAuthFromUsers() {
+  if (!localState.usersReady) return;
   if (!localState.pendingUserId || localState.currentUser) return;
   const user = localState.users.find((u) => u.id === localState.pendingUserId);
   if (!user) {
@@ -3802,7 +4299,6 @@ window.addEventListener('keydown', (event) => {
 });
 
 window.handleMemoPaste = handleMemoPaste;
-window.handleSharedPaste = handleSharedPaste;
 
 
 
