@@ -291,6 +291,59 @@
   /* Loading */
   .loading { font-size: .82rem; color: var(--muted); text-align: center; padding: 2rem; }
 
+  .confirm-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(17,24,39,0.36);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    z-index: 1200;
+  }
+  .confirm-card {
+    width: min(360px, 100%);
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 10px 26px rgba(17,24,39,0.18);
+    padding: 14px;
+  }
+  .confirm-title {
+    font-size: .92rem;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .confirm-message {
+    margin-top: .45rem;
+    font-size: .82rem;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+  .confirm-actions {
+    margin-top: .9rem;
+    display: flex;
+    justify-content: flex-end;
+    gap: .45rem;
+  }
+  .confirm-btn {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #fff;
+    color: var(--text);
+    padding: .4rem .75rem;
+    font-size: .8rem;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .confirm-btn:hover { background: #f3f4f6; }
+  .confirm-btn-danger {
+    background: var(--danger);
+    border-color: var(--danger);
+    color: #fff;
+  }
+  .confirm-btn-danger:hover { background: #b91c1c; }
+
   @media (max-width: 640px) {
     aside { width: 200px; }
     main { padding: 1.5rem 1.2rem; }
@@ -328,6 +381,17 @@
   </main>
 </div>
 
+<div class="confirm-overlay" id="confirm-overlay" role="dialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-message">
+  <div class="confirm-card">
+    <div class="confirm-title" id="confirm-title">확인</div>
+    <p class="confirm-message" id="confirm-message">이 작업을 진행할까요?</p>
+    <div class="confirm-actions">
+      <button type="button" class="confirm-btn" id="confirm-cancel-btn">취소</button>
+      <button type="button" class="confirm-btn confirm-btn-danger" id="confirm-ok-btn">삭제</button>
+    </div>
+  </div>
+</div>
+
 <!-- Firebase SDK -->
 <script type="module">
 import { initializeApp, getApps } from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
@@ -345,6 +409,7 @@ let currentPageId = null;
 let saveTimer = null;
 let localId = 0;
 let currentUid = '';
+let confirmResolver = null;
 const OBSOLETE_STORAGE_KEYS = [
   'fb-cfg',
   'memo-pages-rich-v1'
@@ -364,6 +429,67 @@ const emptyState = document.getElementById('empty-state');
 const statusDot = document.getElementById('status-dot');
 const statusText = document.getElementById('status-text');
 const searchInput = document.getElementById('search-input');
+const confirmOverlay = document.getElementById('confirm-overlay');
+const confirmTitleEl = document.getElementById('confirm-title');
+const confirmMessageEl = document.getElementById('confirm-message');
+const confirmCancelBtn = document.getElementById('confirm-cancel-btn');
+const confirmOkBtn = document.getElementById('confirm-ok-btn');
+
+function openConfirmDialog(options = {}) {
+  const title = String(options.title || '확인');
+  const message = String(options.message || '이 작업을 진행할까요?');
+  const confirmText = String(options.confirmText || '확인');
+  const cancelText = String(options.cancelText || '취소');
+  const danger = options.danger !== false;
+
+  if (!confirmOverlay || !confirmTitleEl || !confirmMessageEl || !confirmCancelBtn || !confirmOkBtn) {
+    return Promise.resolve(confirm(message));
+  }
+
+  if (typeof confirmResolver === 'function') {
+    const stale = confirmResolver;
+    confirmResolver = null;
+    stale(false);
+  }
+
+  confirmTitleEl.textContent = title;
+  confirmMessageEl.textContent = message;
+  confirmCancelBtn.textContent = cancelText;
+  confirmOkBtn.textContent = confirmText;
+  confirmOkBtn.classList.toggle('confirm-btn-danger', danger);
+  confirmOverlay.style.display = 'flex';
+  setTimeout(() => confirmOkBtn.focus(), 0);
+
+  return new Promise((resolve) => {
+    confirmResolver = resolve;
+  });
+}
+
+function resolveConfirmDialog(result) {
+  if (confirmOverlay) confirmOverlay.style.display = 'none';
+  if (typeof confirmResolver === 'function') {
+    const done = confirmResolver;
+    confirmResolver = null;
+    done(Boolean(result));
+  }
+}
+
+if (confirmOverlay) {
+  confirmOverlay.addEventListener('click', (event) => {
+    if (event.target === confirmOverlay) resolveConfirmDialog(false);
+  });
+}
+if (confirmCancelBtn) {
+  confirmCancelBtn.addEventListener('click', () => resolveConfirmDialog(false));
+}
+if (confirmOkBtn) {
+  confirmOkBtn.addEventListener('click', () => resolveConfirmDialog(true));
+}
+window.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && confirmOverlay && confirmOverlay.style.display === 'flex') {
+    resolveConfirmDialog(false);
+  }
+});
 
 // ── Firebase init ──────────────────────────
 async function initFirebase(cfg) {
@@ -458,7 +584,14 @@ async function createPage() {
 }
 
 async function deletePage(id) {
-  if (!confirm('이 페이지를 삭제할까요?')) return;
+  const shouldDelete = await openConfirmDialog({
+    title: '메모 삭제',
+    message: '이 페이지를 삭제할까요?',
+    confirmText: '삭제',
+    cancelText: '취소',
+    danger: true
+  });
+  if (!shouldDelete) return;
   if (useFirestore) {
     try { await deleteDoc(doc(db, PAGES_COLLECTION, id)); } catch(e) { console.error(e); }
   } else {
@@ -714,7 +847,37 @@ function makeTextEl(b) {
     return el;
   }
 
-  el.oninput = () => scheduleSave();
+  el.oninput = () => {
+    scheduleSave();
+    ensureLinksInBlock(el);
+  };
+
+  el.onclick = (event) => {
+    const anchor = event.target && event.target.closest ? event.target.closest('a') : null;
+    if (!anchor) return;
+    event.preventDefault();
+    const href = String(anchor.getAttribute('href') || '').trim();
+    if (!/^https?:\/\//i.test(href)) return;
+    window.open(href, '_blank', 'noopener,noreferrer');
+  };
+
+  el.oncontextmenu = async (event) => {
+    const anchor = event.target && event.target.closest ? event.target.closest('a') : null;
+    if (!anchor) return;
+    const href = String(anchor.getAttribute('href') || '').trim();
+    if (!/^https?:\/\//i.test(href)) return;
+    event.preventDefault();
+    const shouldUnlink = await openConfirmDialog({
+      title: '링크 해제',
+      message: '이 링크를 해제할까요?',
+      confirmText: '해제',
+      cancelText: '취소',
+      danger: false
+    });
+    if (!shouldUnlink) return;
+    unwrapAnchorNode(anchor);
+    scheduleSave();
+  };
 
   el.onkeydown = (e) => {
     const block = el.closest('.block');
@@ -758,8 +921,12 @@ function makeTextEl(b) {
       else if (compact === '/end' || compact === '/끝') { e.preventDefault(); el.textContent=''; convertBlock(block, 'toggle-end'); }
       else if (text === '---') { e.preventDefault(); el.textContent=''; convertBlock(block, 'divider'); }
       else if (/^\d+\.$/.test(text)) { e.preventDefault(); el.textContent=''; convertBlock(block, 'numbered'); }
+      else {
+        setTimeout(() => ensureLinksInBlock(el), 0);
+      }
     }
   };
+  setTimeout(() => ensureLinksInBlock(el), 0);
   return el;
 }
 
@@ -899,6 +1066,74 @@ function updateToggleTitlePreview(toggleBlock) {
   const full = String(textEl.textContent || '');
   const firstLine = full.split('\n').map((line) => line.trim()).find(Boolean) || '';
   preview.textContent = firstLine || '토글 제목';
+}
+
+function ensureLinksInBlock(root) {
+  if (!root) return;
+  normalizeExistingAnchors(root);
+  linkifyTextNodes(root);
+}
+
+function normalizeExistingAnchors(root) {
+  root.querySelectorAll('a').forEach((a) => {
+    const href = String(a.getAttribute('href') || '').trim();
+    if (!/^https?:\/\//i.test(href)) return;
+    a.setAttribute('target', '_blank');
+    a.setAttribute('rel', 'noopener noreferrer');
+  });
+}
+
+function linkifyTextNodes(root) {
+  const URL_RE = /(https?:\/\/[^\s<]+)/gi;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+  const targets = [];
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    if (!node || !node.nodeValue) continue;
+    if (!node.nodeValue.trim()) continue;
+    let parent = node.parentNode;
+    let insideAnchor = false;
+    while (parent && parent !== root) {
+      if (parent.nodeType === 1 && parent.tagName === 'A') {
+        insideAnchor = true;
+        break;
+      }
+      parent = parent.parentNode;
+    }
+    if (!insideAnchor && URL_RE.test(node.nodeValue)) targets.push(node);
+    URL_RE.lastIndex = 0;
+  }
+
+  targets.forEach((node) => {
+    const text = node.nodeValue;
+    URL_RE.lastIndex = 0;
+    let m;
+    let last = 0;
+    const frag = document.createDocumentFragment();
+    while ((m = URL_RE.exec(text)) !== null) {
+      const url = m[0];
+      const idx = m.index;
+      if (idx > last) frag.appendChild(document.createTextNode(text.slice(last, idx)));
+      const a = document.createElement('a');
+      a.href = url;
+      a.textContent = url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      frag.appendChild(a);
+      last = idx + url.length;
+    }
+    if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+    if (node.parentNode) node.parentNode.replaceChild(frag, node);
+  });
+}
+
+function unwrapAnchorNode(anchor) {
+  if (!anchor || !anchor.parentNode) return;
+  const parent = anchor.parentNode;
+  while (anchor.firstChild) {
+    parent.insertBefore(anchor.firstChild, anchor);
+  }
+  parent.removeChild(anchor);
 }
 
 function collectBlocks() {

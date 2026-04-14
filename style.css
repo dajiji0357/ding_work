@@ -650,8 +650,23 @@ body.dark-mode .figma-link-frame { background: #1f2c44; border-color: rgba(147,1
 .btn.full { width: 100%; }
 
 /* topbar auth-area buttons */
-.admin-fab-wrap { display: flex; gap: 6px; }
-.admin-fab-btn { border-radius: 999px; padding: 6px 10px; font-size: 0.72rem; line-height: 1.2; }
+.admin-fab-wrap {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 70;
+  display: flex;
+  gap: 6px;
+}
+.admin-fab-btn {
+  border-radius: 999px;
+  padding: 10px 14px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.2;
+  box-shadow: 0 10px 22px rgba(16,24,38,0.22);
+}
+.admin-fab-wrap .badge-pill { cursor: pointer; }
 
 /* ════════════════════════════════════════
    STATUS INDICATOR / USER PILL
@@ -1176,6 +1191,41 @@ body.dark-mode .task-order-btn:hover { background: rgba(43,66,100,0.86); }
 .modal-inline-optional { display: grid; gap: 6px; margin-bottom: 10px; }
 .modal-inline-toggle { justify-self: flex-start; }
 .modal-inline-expand { display: grid; gap: 6px; }
+#taskCreateModal .modal-inline-toggle {
+  background: rgba(15,106,97,0.12);
+  border-color: rgba(15,106,97,0.34);
+  color: #0d5851;
+}
+#taskCreateModal .modal-inline-toggle:hover {
+  background: rgba(15,106,97,0.2);
+  border-color: rgba(15,106,97,0.46);
+}
+#taskCreateModal .modal-inline-toggle[aria-expanded='true'] {
+  background: rgba(15,106,97,0.24);
+  border-color: rgba(15,106,97,0.54);
+}
+.confirm-modal-message {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  line-height: 1.45;
+}
+.confirm-modal-actions {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+.modal:not(#gymMoodModal) .btn.btn-danger {
+  background: var(--color-state-danger);
+  color: #fff;
+  border: 0.5px solid var(--color-state-danger);
+}
+.modal:not(#gymMoodModal) .btn.btn-danger:hover {
+  background: #b13b3b;
+  border-color: #b13b3b;
+}
 .modal:not(#gymMoodModal) .admin-row,
 .modal:not(#gymMoodModal) .worker-row {
   border: none;
@@ -1427,6 +1477,26 @@ body.dark-mode .task-order-btn:hover { background: rgba(43,66,100,0.86); }
 .brand-backup-input { min-height: 76px; resize: vertical; }
 .inline-brand-add .pill-input { margin-bottom: 0; }
 .brand-add-guide { color: var(--muted); font-size: 0.8rem; font-weight: 800; margin-bottom: 8px; }
+.brand-list-modal-content { width: min(980px,100%); max-height: 92vh; }
+.brand-list-modal-content .modal-body { display: grid; gap: 12px; }
+.brand-manage-list {
+  max-height: clamp(320px, 48vh, 560px);
+  overflow-y: auto;
+  padding-right: 4px;
+  align-content: start;
+}
+.brand-manage-list .admin-row {
+  grid-template-columns: minmax(0,1fr) auto;
+  gap: 12px;
+  align-items: start;
+}
+.brand-manage-list .brand-edit-left .pill-input {
+  font-weight: 600;
+}
+.brand-manage-list .row-actions {
+  min-width: 148px;
+  justify-content: flex-end;
+}
 .brand-color-picker { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .brand-color-pop { position: relative; }
 .brand-color-toggle { min-width: 108px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-weight: 800; }
@@ -1441,6 +1511,8 @@ body.dark-mode .task-order-btn:hover { background: rgba(43,66,100,0.86); }
    ADMIN
 ════════════════════════════════════════ */
 .admin-section h4 { margin: 10px 0; }
+.admin-user-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.admin-user-head h4 { margin: 10px 0; }
 .admin-tools { display: grid; grid-template-columns: 1.4fr repeat(4,minmax(120px,1fr)); gap: 8px; align-items: center; margin-bottom: 10px; }
 .admin-tools .pill-input { margin-bottom: 0; }
 .admin-task-count { margin-bottom: 8px; color: var(--muted); font-size: 0.82rem; font-weight: 700; }
@@ -1462,7 +1534,15 @@ body.dark-mode .task-order-btn:hover { background: rgba(43,66,100,0.86); }
 .figma-board-hint { color: var(--muted); font-size: 0.86rem; }
 .figma-board-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .figma-board-shell { min-height: 280px; }
-.figma-board-shell .note-editor-pane { min-height: 280px; }
+.figma-board-shell .note-editor-pane {
+  min-height: 280px;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+.figma-board-shell .note-editor-pane::placeholder {
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
 .figma-link-modal-content { width: min(1200px,100%); }
 .figma-link-toolbar { display: flex; justify-content: flex-end; margin-bottom: 8px; }
 .figma-open-here-btn {
@@ -1568,6 +1648,10 @@ body.dark-mode .figma-open-here-btn:hover {
   .admin-task-grid, .admin-user-grid { grid-template-columns: 1fr; }
   .admin-tools { grid-template-columns: 1fr; }
   .brand-add-top { grid-template-columns: 1fr; }
+  .brand-list-modal-content { width: min(100%, 100%); }
+  .brand-manage-list { max-height: none; }
+  .brand-manage-list .admin-row { grid-template-columns: 1fr; }
+  .brand-manage-list .row-actions { min-width: 0; justify-content: flex-start; }
   .brand-edit-floating { position: static; margin: 0 32px 8px auto; }
   .brand-modal-head { padding-right: 0; }
   .row-actions .pill-input { width: 100%; }
@@ -1576,6 +1660,8 @@ body.dark-mode .figma-open-here-btn:hover {
   .topbar-title { font-size: 12px; }
   .shared-notion-wrap { min-height: 520px; }
   .shared-notion-frame { height: 68vh; min-height: 520px; }
+  .admin-fab-wrap { right: 12px; bottom: 12px; }
+  .admin-fab-btn { padding: 9px 12px; font-size: 0.74rem; }
 }
 
 /* 모바일에서 사이드바 열기용 오버레이 */

@@ -115,7 +115,8 @@ const localState = {
   gymMoodDragId: '',
   gymMoodEditMode: false,
   themeMode: 'light',
-  brandEditMode: false
+  brandEditMode: false,
+  confirmDialogResolver: null
 };
 let memoWalkerResumeTimer = null;
 
@@ -1202,6 +1203,69 @@ function deleteUser(userId) {
   if (!localState.isAdmin) return;
   if (!confirm('작업자를 삭제하시겠습니까?')) return;
   db.collection(COLLECTIONS.users).doc(userId).delete();
+}
+
+async function cleanupGhostUsers() {
+  if (!localState.isAdmin) {
+    alert('관리자 권한이 필요합니다.');
+    return;
+  }
+
+  const shouldRun = confirm('작업에 연결되지 않은 자동 생성/유령 유저를 정리할까요?');
+  if (!shouldRun) return;
+
+  try {
+    const [userSnap, taskSnap] = await Promise.all([
+      db.collection(COLLECTIONS.users).get(),
+      db.collection(COLLECTIONS.tasks).get()
+    ]);
+
+    const usedUserIds = new Set();
+    taskSnap.forEach((taskDoc) => {
+      const task = taskDoc.data() || {};
+      if (Array.isArray(task.userIds)) {
+        task.userIds.forEach((id) => {
+          if (id) usedUserIds.add(String(id));
+        });
+      }
+      if (task.userId) usedUserIds.add(String(task.userId));
+    });
+
+    const ghostRefs = [];
+    userSnap.forEach((userDoc) => {
+      const user = userDoc.data() || {};
+      const userId = String(userDoc.id || '');
+      const name = String(user.name || '').trim();
+      const nameLc = name.toLowerCase();
+      const pw = String(user.pw || '').trim();
+      const hasPassword = Boolean(pw);
+      const isLegacyGhostName = nameLc === 'memo user' || nameLc === 'abc';
+      const isUsedInTasks = usedUserIds.has(userId);
+      if (isUsedInTasks) return;
+      if (!hasPassword || isLegacyGhostName) {
+        ghostRefs.push(userDoc.ref);
+      }
+    });
+
+    if (!ghostRefs.length) {
+      alert('정리할 유령 유저가 없습니다.');
+      return;
+    }
+
+    const chunkSize = 400;
+    for (let i = 0; i < ghostRefs.length; i += chunkSize) {
+      const chunk = ghostRefs.slice(i, i + chunkSize);
+      const batch = db.batch();
+      chunk.forEach((ref) => batch.delete(ref));
+      await batch.commit();
+    }
+
+    alert(`유령 유저 ${ghostRefs.length}명을 정리했습니다.`);
+    renderAdminLists();
+  } catch (err) {
+    console.error(err);
+    alert('유령 유저 정리 중 오류가 발생했습니다.');
+  }
 }
 
 function renderBrandManageList() {
@@ -2860,8 +2924,7 @@ function handleAdminAction() {
     }
     return;
   }
-
-  openModal('adminModal');
+  logoutAdmin();
 }
 
 function updateAdminUI() {
@@ -2871,7 +2934,6 @@ function updateAdminUI() {
   const userLogoutBtn = document.getElementById('userLogoutBtn');
   const profileBtn = document.getElementById('profileBtn');
   const adminBtn = document.getElementById('adminBtn');
-  const adminLogoutBtn = document.getElementById('adminLogoutBtn');
   const loginInfo = document.getElementById('loginInfo');
   const currentName = localState.currentUser ? localState.currentUser.name : 'Guest';
   if (loginInfo) {
@@ -2883,15 +2945,9 @@ function updateAdminUI() {
   if (signupBtn) signupBtn.classList.toggle('hidden', !!localState.currentUser);
   if (userLogoutBtn) userLogoutBtn.classList.toggle('hidden', !localState.currentUser);
   if (profileBtn) profileBtn.classList.toggle('hidden', !localState.currentUser);
-  if (adminLogoutBtn) adminLogoutBtn.classList.toggle('hidden', !localState.isAdmin);
 
-  if (localState.isAdmin) {
-    if (badge) badge.classList.remove('hidden');
-    adminBtn.innerText = 'Admin Page';
-  } else {
-    if (badge) badge.classList.add('hidden');
-    adminBtn.innerText = 'Admin';
-  }
+  if (badge) badge.classList.toggle('hidden', !localState.isAdmin);
+  if (adminBtn) adminBtn.innerText = localState.isAdmin ? 'Admin 로그아웃' : 'Admin 로그인';
 }
 
 function updateAuthUI() {
@@ -3010,9 +3066,20 @@ function openModal(id) {
       setTimeout(() => editor.focus(), 0);
     }
   }
+  if (id === 'confirmModal') {
+    setTimeout(() => {
+      const confirmBtn = document.getElementById('confirmModalOkBtn');
+      if (confirmBtn) confirmBtn.focus();
+    }, 0);
+  }
 }
 
 function closeModal(id) {
+  if (id === 'confirmModal' && typeof localState.confirmDialogResolver === 'function') {
+    const resolve = localState.confirmDialogResolver;
+    localState.confirmDialogResolver = null;
+    resolve(false);
+  }
   const el = document.getElementById(id);
   if (el) el.style.display = 'none';
   if (id === 'taskEditModal') localState.editingTaskId = null;
@@ -3030,6 +3097,50 @@ function closeModal(id) {
     const frame = document.getElementById('figmaLinkFrame');
     if (frame) frame.src = 'about:blank';
   }
+}
+
+function showConfirmModal(options = {}) {
+  const title = String(options.title || '확인');
+  const message = String(options.message || '이 작업을 진행할까요?');
+  const confirmText = String(options.confirmText || '확인');
+  const cancelText = String(options.cancelText || '취소');
+  const danger = Boolean(options.danger);
+
+  const titleEl = document.getElementById('confirmModalTitle');
+  const messageEl = document.getElementById('confirmModalMessage');
+  const confirmBtn = document.getElementById('confirmModalOkBtn');
+  const cancelBtn = document.getElementById('confirmModalCancelBtn');
+
+  if (!titleEl || !messageEl || !confirmBtn || !cancelBtn) {
+    return Promise.resolve(confirm(message));
+  }
+
+  titleEl.textContent = title;
+  messageEl.textContent = message;
+  confirmBtn.textContent = confirmText;
+  cancelBtn.textContent = cancelText;
+  confirmBtn.classList.toggle('btn-danger', danger);
+
+  if (typeof localState.confirmDialogResolver === 'function') {
+    const staleResolve = localState.confirmDialogResolver;
+    localState.confirmDialogResolver = null;
+    staleResolve(false);
+  }
+
+  return new Promise((resolve) => {
+    localState.confirmDialogResolver = resolve;
+    openModal('confirmModal');
+  });
+}
+
+function resolveConfirmModal(result) {
+  if (typeof localState.confirmDialogResolver === 'function') {
+    const resolve = localState.confirmDialogResolver;
+    localState.confirmDialogResolver = null;
+    resolve(Boolean(result));
+  }
+  const modal = document.getElementById('confirmModal');
+  if (modal) modal.style.display = 'none';
 }
 
 function closeOnBackdrop(event, modalId) {
@@ -3499,8 +3610,15 @@ function renderMemoView(id, content) {
   view.innerHTML = renderNoteElements(content || '');
 }
 
-function deleteMemo(id) {
-  if (!confirm('메모를 삭제하시겠습니까?')) return;
+async function deleteMemo(id) {
+  const shouldDelete = await showConfirmModal({
+    title: '메모 삭제',
+    message: '이 메모를 삭제하시겠습니까?',
+    confirmText: '삭제',
+    cancelText: '취소',
+    danger: true
+  });
+  if (!shouldDelete) return;
   db.collection(COLLECTIONS.memos).doc(id).delete();
 }
 
@@ -3801,7 +3919,8 @@ function initModalChrome() {
     brandListModal: '브랜드 목록과 백업 위치를 관리합니다.',
     refreshModal: '리프레시 도구를 선택해 실행합니다.',
     figmaBoardModal: '피그마 공유 메모를 관리합니다.',
-    figmaLinkModal: '피그마 링크를 확인합니다.'
+    figmaLinkModal: '피그마 링크를 확인합니다.',
+    confirmModal: '작업 실행 전 한 번 더 확인합니다.'
   };
 
   document.querySelectorAll('.modal').forEach((modal) => {
@@ -4295,7 +4414,7 @@ function hideSlashEmojiPicker() {
 
 window.addEventListener('keydown', (event) => {
   if (event.key !== 'Escape') return;
-  ['taskCreateModal', 'workerListModal', 'registerModal', 'loginModal', 'adminModal', 'taskEditModal', 'brandListModal', 'refreshModal', 'gymMoodModal', 'figmaBoardModal', 'figmaLinkModal'].forEach(closeModal);
+  ['taskCreateModal', 'workerListModal', 'registerModal', 'loginModal', 'adminModal', 'taskEditModal', 'brandListModal', 'refreshModal', 'gymMoodModal', 'figmaBoardModal', 'figmaLinkModal', 'confirmModal'].forEach(closeModal);
 });
 
 window.handleMemoPaste = handleMemoPaste;

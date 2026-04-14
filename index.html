@@ -94,9 +94,6 @@
           <button id="themeToggleBtn" class="theme-toggle-btn" type="button" onclick="toggleThemeMode()" aria-label="다크모드 전환" title="다크모드">
             <span id="themeToggleIcon" aria-hidden="true">🌙</span>
           </button>
-          <div id="adminBadge" class="badge-pill hidden">ADMIN</div>
-          <button id="adminBtn" class="btn btn-action admin-fab-btn" onclick="handleAdminAction()">Admin</button>
-          <button id="adminLogoutBtn" class="btn btn-outline admin-fab-btn hidden" onclick="logoutAdmin()">Admin 로그아웃</button>
         </div>
       </header>
 
@@ -349,7 +346,10 @@
       <button class="close-btn" onclick="closeModal('adminModal')">&times;</button>
       <h3>관리자 페이지</h3>
       <div class="admin-section">
-        <h4>작업자 정보 전체 수정/삭제</h4>
+        <div class="admin-user-head">
+          <h4>작업자 정보 전체 수정/삭제</h4>
+          <button class="btn btn-outline small" type="button" onclick="cleanupGhostUsers()">유령 유저 정리</button>
+        </div>
         <div id="adminUserList" class="admin-list"></div>
       </div>
       <div class="admin-section">
@@ -435,7 +435,7 @@
   </div>
 
   <div id="brandListModal" class="modal" onclick="closeOnBackdrop(event, 'brandListModal')">
-    <div class="modal-content">
+    <div class="modal-content wide brand-list-modal-content">
       <button class="close-btn" onclick="closeModal('brandListModal')">&times;</button>
       <button id="brandEditToggleBtn" type="button" class="btn btn-outline small brand-edit-floating" onclick="toggleBrandEditMode()">수정하기</button>
       <div class="brand-modal-head"><h3>브랜드 리스트</h3></div>
@@ -459,7 +459,7 @@
           </div>
         </div>
       </div>
-      <div id="brandManageList" class="admin-list"></div>
+      <div id="brandManageList" class="admin-list brand-manage-list"></div>
     </div>
   </div>
 
@@ -615,6 +615,23 @@
       </div>
       <iframe id="figmaLinkFrame" class="figma-link-frame" src="about:blank" title="피그마 링크"></iframe>
     </div>
+  </div>
+
+  <div id="confirmModal" class="modal" onclick="closeOnBackdrop(event, 'confirmModal')">
+    <div class="modal-content">
+      <button class="close-btn" type="button" onclick="resolveConfirmModal(false)">&times;</button>
+      <h3 id="confirmModalTitle">확인</h3>
+      <p id="confirmModalMessage" class="confirm-modal-message">이 작업을 진행할까요?</p>
+      <div class="confirm-modal-actions">
+        <button id="confirmModalCancelBtn" class="btn btn-outline" type="button" onclick="resolveConfirmModal(false)">취소</button>
+        <button id="confirmModalOkBtn" class="btn btn-primary" type="button" onclick="resolveConfirmModal(true)">확인</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="admin-fab-wrap">
+    <div id="adminBadge" class="badge-pill hidden" onclick="openModal('adminModal')" title="관리자 페이지 열기">ADMIN</div>
+    <button id="adminBtn" class="btn btn-action admin-fab-btn" onclick="handleAdminAction()">Admin 로그인</button>
   </div>
 
   <script src="firebase-config.js"></script>
